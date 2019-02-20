@@ -12,6 +12,26 @@ cluster = Cluster("http://127.0.0.1", bucket_class=CouchbaseBucket)
 cluster.authenticate(PasswordAuthenticator("Administrator", 'password'))
 cb = cluster.open_bucket("testcase_repo")
 
+end_date = datetime.strptime("{0}-{1}-{2}".format(2015, 12, 31), "%Y-%m-%d")
+total = 0
+for row in cb.n1ql_query("SELECT * FROM `testcase_repo`"):
+    is_created = False
+    for changeHist in row["testcase_repo"]["changeHistory"]:
+        commitDate = changeHist["commitDate"].split(" ")[0]
+        commitDate = datetime.strptime(commitDate, "%Y-%m-%d")
+
+        if commitDate > end_date:
+            break
+                
+        if changeHist["changeType"] == "create":
+            is_created = True
+        elif changeHist["changeType"] == "delete":
+            is_created = False
+    if is_created:
+        total += 1
+
+print("Total cases as of 2015: {0}".format(total))
+
 for year in years_to_check:
     if year == 2019:
         months = [1]
@@ -47,4 +67,5 @@ for year in years_to_check:
                 create += 1
             elif is_deleted:
                 delete += 1
-        print("{0} {1} - Created: {2}, Deleted: {3}".format(month_str[month-1], year, create, delete))
+        total += create - delete
+        print("{0} {1} - Created: {2}, Deleted: {3}, Total: {4}".format(month_str[month-1], year, create, delete, total))
