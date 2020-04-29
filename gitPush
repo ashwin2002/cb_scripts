@@ -1,0 +1,80 @@
+#!/bin/bash
+
+commitAmend=false
+branch=
+skipGoChecks=true
+
+while [[ $# -gt 0 ]]
+do
+    key="$1"
+    case $key in
+        -b|--branch)
+            branch=$2
+            shift ; shift
+            ;;
+        -a|--amend)
+            commitAmend=true
+            shift
+            ;;
+        --skipCheck)
+            skipGoChecks=true
+            shift
+            ;;
+        *)
+            echo "ERROR: Invalid option '$key'"
+            shift
+            ;;
+    esac
+done
+
+if [ "$skipGoChecks" == "false" ]; then
+    echo -n "Format check............."
+    output=$(go fmt ./...)
+    if [ "$output" != "" ]; then
+        echo  "[FAILED]"
+        echo "$output"
+        exit 1
+    fi
+    echo "[OK]"
+
+    echo -n "Generating Test Build...."
+    go test -c github.com/couchbase/couchbase-operator/test/e2e
+    if [ $? -ne 0 ]; then
+        echo  "[FAILED]"
+        exit 1
+    fi
+    echo "[OK]"
+
+    echo -n "Vetting Code............."
+    output=$(go vet ./pkg/... ./test/... 2>&1 | awk '/^#/{flag=1} /^#.*generated/{flag=0} flag')
+    if [[ $output != "" ]]; then
+        echo  "[FAILED]"
+        echo "$output"
+        exit 1
+    fi
+    echo "[OK]"
+fi
+
+currBranch=`git branch | grep "*" | cut -d' ' -f 2`
+if False && [ "$currBranch" != "$branch" ] && [ "$currBranch" != "(HEAD" ]
+then
+    echo "Current branch '$currBranch' not same as expected '$branch'"
+    exit 1
+fi
+
+if [ "$commitAmend" == "true" ]
+then
+    echo "INFO: Amending previous commit in branch '$branch'"
+    git commit --amend
+else
+    echo "INFO: Commit to branch '$branch'"
+    git commit
+fi
+
+if [ $? -eq 0 ]
+then
+    git push gerrit HEAD:refs/for/$branch
+fi
+
+exit $?
+

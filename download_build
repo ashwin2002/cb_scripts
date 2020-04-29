@@ -1,0 +1,15 @@
+branch=$1
+build=$2
+
+if [ "$branch" == "mh" ]; then
+    branch=mad-hatter
+    version_num="6.5.1"
+elif [ "$branch" == "cc" ]; then
+    branch="cheshire-cat"
+    version_num="7.0.0"
+else
+    echo "Branch '$branch' not supported"
+    exit 0
+fi
+
+wget http://latestbuilds.service.couchbase.com/builds/latestbuilds/couchbase-server/$branch/$build/couchbase-server-enterprise-$version_num-$build-centos7.x86_64.rpm
