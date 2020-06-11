@@ -88,6 +88,8 @@ def get_time_from_ms(ms):
 def print_build_durations():
     table_view = TableView()
     table_view.set_headers(["Job", build, compare_duration_with])
+    total_duration_1 = 0
+    total_duration_2 = 0
     print("Running N1ql queries")
     itr_rows = cb.n1ql_query(N1QLQuery(
         'SELECT name,duration FROM `%s` data \
@@ -99,6 +101,7 @@ def print_build_durations():
     for row in itr_rows:
         name = row["name"]
         duration_1 = row["duration"]
+        total_duration_1 += duration_1
 
         compare_row = cb.n1ql_query(N1QLQuery(
             'SELECT duration FROM `%s` data \
@@ -109,15 +112,19 @@ def print_build_durations():
             % (bucket_name, component, os, compare_duration_with, name)))
         for row in compare_row:
             duration_2 = row["duration"]
+            total_duration_2 += duration_2
             table_view.add_row([name, 
                                 get_time_from_ms(duration_1),
                                 get_time_from_ms(duration_2)])
             break
 
+    table_view.add_row(["Total", 
+                        get_time_from_ms(total_duration_1),
+                        get_time_from_ms(total_duration_2)])
     table_view.display("Time Comparison")
 
 
-def print_failed_jobs():
+def print_failed_jobs(component, os, build):
     print("Running N1ql query")
     row_iter = cb.n1ql_query(N1QLQuery(
         'SELECT * FROM `%s` data \
@@ -177,17 +184,36 @@ def print_failed_jobs():
     print("Total: %s, Passed: %s Failed: %s. Pass percent: %s%%" % (total_tc, passed_tc, failed_tc, pass_percent))
 
 SERVER_IP = "172.23.98.63"
-username = "uName"
-password = "pWord"
+username = "Administrator"
+password = "password"
 bucket_name = "server"
 
-component = "DURABILITY"
 os = "CENTOS"
-build = sys.argv[1]
-compare_duration_with="6.5.0-4960"
+component = "DURABILITY"
+build = ""
+compare_duration_with=None
 
 job_details = dict()
 failed_jobs = dict()
+
+supported_options = ["--component", "--build", "--os", "--compare_duration_with"]
+
+index = 1
+arg_len = len(sys.argv)
+while index < arg_len:
+  if sys.argv[index] == "--component":
+    component = sys.argv[index+1]
+  elif sys.argv[index] == "--build":
+    build = sys.argv[index+1]
+  elif sys.argv[index] == "--os":
+    os = sys.argv[index+1]
+  elif sys.argv[index] == "--compare_duration_with":
+    compare_duration_with = sys.argv[index+1]
+  else:
+    print("Supported options: %s" % supported_options)
+    exit(0)
+
+  index += 2
 
 print("Connecting to cluster")
 cluster = Cluster('couchbase://%s' % SERVER_IP)
@@ -200,4 +226,4 @@ cb = cluster.open_bucket(bucket_name)
 if compare_duration_with is not None:
     print_build_durations()
 else:
-    print_failed_jobs()
+    print_failed_jobs(component, os, build)
