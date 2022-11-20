@@ -64,12 +64,13 @@ if args.dataplanes:
             print("      Provider :: %s %s" % (cluster["config"]["provider"], cluster["config"]["region"]))
             print("-" * line_len)
 
-if args.get_jwt:
+elif args.get_jwt:
     headers = get_jwt_header()
-    output = ""
+    output = "%s " % control_plane
     for k, v in headers.items():
-        output += "%s -H \"%s: %s\"" % (control_plane, k, v)
+        output += "-H \"%s: %s\" " % (k, v)
     print(output)
+    exit(0)
 
 #### Deletes all DBs ######
 elif args.delete_all_dbs:
