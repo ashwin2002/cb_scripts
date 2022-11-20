@@ -70,7 +70,6 @@ if args.get_jwt:
     for k, v in headers.items():
         output += "%s -H \"%s: %s\"" % (control_plane, k, v)
     print(output)
-    exit(0)
 
 #### Deletes all DBs ######
 elif args.delete_all_dbs:
@@ -106,14 +105,16 @@ elif args.bypass is not None:
     ip = requests.get('https://checkip.amazonaws.com').text.strip()
     api = "%s/internal/support/serverless-dataplanes/%s/bypass" % (control_plane, args.bypass)
 
-    params = '\'{"allowCIDR": "%s/32"}\'' % ip
-    cmd = ["curl", "-X", "POST", "-L", '"' + api + '"', 
-           "-H", '"Content-Type: application/json"',
-           "-H", '"Authorization: Bearer %s"' % secret_token,
-           "-d", params,
-           str(get_jwt_header())]
+    headers = get_jwt_header()
+    output = ""
+    for k, v in headers.items():
+        output += " -H \"%s: %s\"" % (k, v)
 
-    print(' '.join(cmd)) 
+    params = '\'{"allowCIDR": "%s/32"}\'' % ip
+    cmd = ["curl", "-X", "POST", "-L", '"' + api + '"',
+           "-d", params, output]
+
+    print(' '.join(cmd))
 
 #### SRV record support #############
 elif args.srv is not None:
