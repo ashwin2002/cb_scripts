@@ -60,12 +60,16 @@ if [ "$skipGoChecks" == "false" ]; then
     echo "[OK]"
 fi
 
-currBranch=`git branch | grep "*" | cut -d' ' -f 2`
-if False && [ "$currBranch" != "$branch" ] && [ "$currBranch" != "(HEAD" ]
-then
-    echo "Current branch '$currBranch' not same as expected '$branch'"
-    exit 1
+if [ -z "$branch" ]
+    branch=`git branch | grep "*" | cut -d' ' -f 2`
 fi
+
+# currBranch=`git branch | grep "*" | cut -d' ' -f 2`
+# if [ "$currBranch" != "$branch" ] && [ "$currBranch" != "(HEAD" ]
+# then
+#     echo "Current branch '$currBranch' not same as expected '$branch'"
+#     exit 1
+# fi
 
 cmd="git commit"
 if [ "$commitAmend" == "true" ]
@@ -81,7 +85,6 @@ fi
 
 echo "Branch......$branch"
 echo "Amend.......$commitAmend"
-$cmd
 
 if [ $? -eq 0 ]
 then
