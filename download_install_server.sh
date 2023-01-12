@@ -102,7 +102,7 @@ if [  "$file_name" == "" ]; then
     build_num=$(echo $build | cut -d'-' -f 2)
     if [ $(echo "$branch >= 8.0" | bc) -eq 1 ]; then
         branch=morpheus
-    elif [ $(echo "$branch >= 7.2" | bc) -eq 1 ]; then
+    elif [ $(echo "$branch >= 7.5" | bc) -eq 1 ]; then
         branch=elixir
     elif [ $(echo "$branch >= 7.1" | bc) -eq 1 ]; then
         branch=neo
@@ -122,7 +122,7 @@ if [  "$file_name" == "" ]; then
     build_link="http://latestbuilds.service.couchbase.com/builds/latestbuilds/couchbase-server/$branch/$build_num/$file_name"
 
     # cleanup_cmd="service couchbase-server stop ; rpm -qa | grep couchbase | xargs rpm -e ; rm -rf /opt/couchbase ; rm -f /etc/couchbase.d/config_profile"
-    cleanup_cmd="service couchbase-server stop ; apt-get remove -y "couchbase*" ; rm -rf /opt/couchbase ; rm -f /etc/couchbase.d/config_profile"
+    cleanup_cmd='service couchbase-server stop ; apt-get remove -y "couchbase*" ; rm -rf /opt/couchbase ; rm -f /etc/couchbase.d/config_profile'
     start_cmd="$serverless_cmd ; service couchbase-server start"
     if [ $vagrant_install = "true" ]
     then
@@ -171,7 +171,7 @@ if [  "$file_name" == "" ]; then
         cp $build_dir/$file_name $vagrant_path/
     fi
 else
-    install_cmd="$time_sync && service couchbase-server stop ; apt-get remove -y "couchbase*" ; rm -rf /opt/couchbase ; dpkg -i /vagrant/$file_name ; service couchbase-server start"
+    install_cmd='$time_sync && service couchbase-server stop ; apt-get remove -y "couchbase*" ; rm -rf /opt/couchbase ; dpkg -i /vagrant/$file_name ; service couchbase-server start'
 fi
 
 
