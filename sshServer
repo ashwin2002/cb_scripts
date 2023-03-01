@@ -1,0 +1,14 @@
+#!/bin/bash
+
+user=
+password=
+options="-o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+cmd=$2
+
+if [ -z "$2" ]; then
+    sshpass -p $password /usr/bin/ssh $options $user@$1
+elif [ "$2" == "exec" ]; then
+    sshpass -p $password /usr/bin/ssh $options $user@$1 -f "$3"
+elif [ "$2" == "scp" ]; then
+    sshpass -p $password /usr/bin/ssh $options $3 $4
+fi
