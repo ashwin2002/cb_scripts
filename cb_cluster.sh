@@ -74,7 +74,7 @@ case "$command" in
     ;;
 
   rebalance)
-    nodes=$(for node in `$curl_cmd/pools/default | jq .nodes[].otpNode | xargs `; do python -c "import urllib;print urllib.quote(raw_input())" <<< "$node"; done)
+    nodes=$(for node in `$curl_cmd/pools/default | jq .nodes[].otpNode | xargs `; do python3 -c "import urllib.parse;print(urllib.parse.quote(input()))" <<< "$node"; done)
     nodes=$(echo $nodes | sed 's/ /,/g')
     ${curl_cmd}/controller/rebalance -X POST -d "knownNodes=$nodes"
     ;;
