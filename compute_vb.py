@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/local/bin/python3
 
 import sys
 import zlib
@@ -19,16 +19,17 @@ while loop_index < arg_len:
     loop_index += 2
 
 if doc_key:
-    vb_num = (((zlib.crc32(doc_key)) >> 16) & 0x7fff) & 1023
+    vb_num = (((zlib.crc32(doc_key.encode())) >> 16) & 0x7fff) & 1023
     print("VBucket:{0}, key: {1}".format(vb_num, doc_key))
 
-if vbucket_num:
+if vbucket_num is not None:
+    doc_key = "test_doc"
     print("VBucket: %s, Keys:" % vbucket_num)
     loop_index = 0
     key_count = 0
     while key_count != num_keys:
         t_doc_key = doc_key + "-" + str(loop_index+1)
-        vb_num = (((zlib.crc32(t_doc_key)) >> 16) & 0x7fff) & 1023
+        vb_num = (((zlib.crc32(t_doc_key.encode())) >> 16) & 0x7fff) & 1023
         loop_index += 1
         if vb_num == vbucket_num:
             print(t_doc_key)
