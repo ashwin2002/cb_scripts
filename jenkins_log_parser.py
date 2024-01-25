@@ -22,6 +22,7 @@ def process_install_steps(chunks):
     install_logs = ""
     install_complete = False
     install_failed_pattern = re.compile("FAILED ON[\t :]+\d+\.\d+\.\d+\.\d+")
+    install_not_started_pattern = re.compile("NOT STARTED ON:[\t :]+\d+\.\d+\.\d+\.\d+")
     time_elapsed = None
     l_idx = 0
     chunk = ['']
@@ -47,11 +48,17 @@ def process_install_steps(chunks):
             break
     ts_occurances = timestamp_pattern.findall(install_logs)
     install_failed_ips = install_failed_pattern.findall(install_logs)
-    print("Install started.....%s" % ts_occurances[0])
-    print("Install completed...%s" % ts_occurances[-1])
-    print("Time elapsed........%s" % time_elapsed)
-    if install_failed_ips:
-        print(install_failed_ips)
+    install_not_started_ips = install_not_started_pattern.findall(install_logs)
+    print("-" * 70)
+    print("Install summary:")
+    print("-" * 70)
+    print("   Started.....%s" % ts_occurances[0])
+    print("   End time....%s" % ts_occurances[-1])
+    print("   Elapsed.....%s" % time_elapsed)
+    for ips in [install_failed_ips, install_not_started_ips]:
+        if ips:
+            print('   ' + '\n'.join(ips))
+    print("-" * 70)
     remaining_lines = chunk[l_idx:]
     return install_logs, '\n'.join(remaining_lines)
 
