@@ -24,11 +24,13 @@ def process_install_steps(chunks):
     install_failed_pattern = re.compile("FAILED ON[\t :]+\d+\.\d+\.\d+\.\d+")
     install_not_started_pattern = re.compile("NOT STARTED ON:[\t :]+\d+\.\d+\.\d+\.\d+")
     time_elapsed = None
+    desc_set_log = re.compile("\[description-setter] Description set: (.*)")
     l_idx = 0
     chunk = ['']
     for chunk in chunks:
         chunk = chunk.decode("utf-8").split("\n")
         for l_idx, line in enumerate(chunk):
+            desc_log = desc_set_log.match(line)
             if "python3 scripts/new_install.py" in line:
                 install_block = True
             elif "TOTAL INSTALL TIME" in line:
@@ -40,6 +42,8 @@ def process_install_steps(chunks):
                 if time_elapsed:
                     time_elapsed = time_elapsed[1]
                 break
+            elif desc_log:
+                print("Description: %s" % desc_log[1])
 
             if install_block:
                 install_logs += line + "\n"
