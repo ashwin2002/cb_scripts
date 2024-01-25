@@ -101,10 +101,12 @@ def process_test_cases(remaining_lines, chunks):
 
     for chunk in chunks:
         chunk = chunk.decode("utf-8").split("\n")
+        chunk = [remaining_lines[-1] + chunk[0]] + chunk[1:]
         for l_idx, line in enumerate(chunk):
             process_test_line(line)
             if deamon_killed:
                 return
+        remaining_lines = [chunk[-1]]
 
 
 def stream_and_process(url_str):
