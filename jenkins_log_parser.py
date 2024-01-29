@@ -1,23 +1,28 @@
 #!/usr/bin/python3
-
+import os
 import re
+import shutil
 import sys
+import tempfile
 from argparse import ArgumentParser
 
 import requests
 
 
-deamon_killed = False
+daemon_killed = False
 install_block = False
 test_case_started = False
 timestamp_pattern = re.compile("\d+-\d+-\d+ \d+:\d+:\d+,\d+")
 test_complete_line_pattern = re.compile("Ran 1 test in (\d+\.\d+s)")
+test_num = 0
 test_report_delimiter = '=' * 70
 test_report_stage = 0
+tmp_file = tempfile.NamedTemporaryFile(dir="/tmp", delete=False)
+final_out_file_name = None
 
 
 def process_install_steps(chunks):
-    global install_block, timestamp_pattern
+    global install_block, timestamp_pattern, tmp_file, final_out_file_name
 
     install_logs = ""
     install_complete = False
@@ -28,6 +33,7 @@ def process_install_steps(chunks):
     l_idx = 0
     chunk = ['']
     for chunk in chunks:
+        tmp_file.write(chunk)
         chunk = chunk.decode("utf-8").split("\n")
         for l_idx, line in enumerate(chunk):
             desc_log = desc_set_log.match(line)
@@ -44,6 +50,9 @@ def process_install_steps(chunks):
                 break
             elif desc_log:
                 print("Description: %s" % desc_log[1])
+                desc_log = desc_log[1].split(" ")
+                final_out_file_name = "%s.%s.%s" % (desc_log[0], desc_log[2],
+                                                    desc_log[3])
 
             if install_block:
                 install_logs += line + "\n"
@@ -68,18 +77,19 @@ def process_install_steps(chunks):
 
 
 def process_test_line(line):
-    global deamon_killed, test_case_started, test_report_stage
+    global daemon_killed, test_case_started, test_report_stage, test_num
 
     if line.strip() == '':
         return
 
     if "- End of the daemon log -" in line:
         print("Test aborted due to end of daemon message")
-        deamon_killed = True
+        daemon_killed = True
         return
 
     if line.startswith("Test Input params:"):
-        print("\nStarted parsing new test")
+        test_num += 1
+        print("\nParsing test: %s" % test_num)
         test_case_started = True
         return
 
@@ -104,30 +114,29 @@ def process_test_line(line):
 
 
 def process_test_cases(remaining_lines, chunks):
-    global deamon_killed
+    global daemon_killed
     for line in remaining_lines.split("\n"):
         process_test_line(line)
-        if deamon_killed:
+        if daemon_killed:
             return
 
     for chunk in chunks:
+        tmp_file.write(chunk)
         chunk = chunk.decode("utf-8").split("\n")
         chunk = [remaining_lines[-1] + chunk[0]] + chunk[1:]
         for l_idx, line in enumerate(chunk):
             process_test_line(line)
-            if deamon_killed:
+            if daemon_killed:
                 return
         remaining_lines = [chunk[-1]]
 
 
 def stream_and_process(url_str):
-    local_filename = url_str.split('/')[-1]
     with requests.get(url_str, stream=True) as r:
         r.raise_for_status()
         chunks = r.iter_content(chunk_size=8192)
         _, remaining_lines = process_install_steps(chunks)
         process_test_cases(remaining_lines, chunks)
-    return local_filename
 
 
 def parse_cmd_arguments():
@@ -162,4 +171,12 @@ if __name__ == '__main__':
         s3_url = "http://cb-logs-qe.s3-website-us-west-2.amazonaws.com"
         url = "%s/%s/jenkins_logs/%s/%s/consoleText.txt"\
               % (s3_url, arguments.version, job_name, arguments.build_num)
+    print("Writing into file: %s" % tmp_file.name)
     stream_and_process(url)
+    user_input = input("Do you want to save this log ? [y/n]: ")
+    tmp_file.close()
+    if user_input.strip() in ["y", "Y"]:
+        print("Saving content into ./%s" % final_out_file_name)
+        shutil.move(tmp_file.name, "./%s" % final_out_file_name)
+    else:
+        os.remove(tmp_file.name)
