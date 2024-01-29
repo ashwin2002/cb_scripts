@@ -17,7 +17,7 @@ test_complete_line_pattern = re.compile("Ran 1 test in (\d+\.\d+s)")
 test_num = 0
 test_report_delimiter = '=' * 70
 test_report_stage = 0
-tmp_file = tempfile.NamedTemporaryFile(dir="/tmp", delete=False)
+tmp_file = None
 final_out_file_name = None
 
 
@@ -152,6 +152,10 @@ def parse_cmd_arguments():
     parser.add_argument("--repo", dest="repo", default='TAF',
                         help="Repo using which the logs are generated",
                         choices=["TAF"])
+
+    parser.add_argument("--dont_save", dest="dont_save_content", default=False,
+                        action="store_true",
+                        help="Won't save the content locally after parsing")
     return parser.parse_args(sys.argv[1:])
 
 
@@ -171,12 +175,17 @@ if __name__ == '__main__':
         s3_url = "http://cb-logs-qe.s3-website-us-west-2.amazonaws.com"
         url = "%s/%s/jenkins_logs/%s/%s/consoleText.txt"\
               % (s3_url, arguments.version, job_name, arguments.build_num)
+
+    delete_tmp_file_flag = True if arguments.dont_save_content else False
+    tmp_file = tempfile.NamedTemporaryFile(dir="/tmp",
+                                           delete=delete_tmp_file_flag)
     print("Writing into file: %s" % tmp_file.name)
     stream_and_process(url)
-    user_input = input("Do you want to save this log ? [y/n]: ")
-    tmp_file.close()
-    if user_input.strip() in ["y", "Y"]:
-        print("Saving content into ./%s" % final_out_file_name)
-        shutil.move(tmp_file.name, "./%s" % final_out_file_name)
-    else:
-        os.remove(tmp_file.name)
+    if not arguments.dont_save_content:
+        user_input = input("Do you want to save this log ? [y/n]: ")
+        tmp_file.close()
+        if user_input.strip() in ["y", "Y"]:
+            print("Saving content into ./%s" % final_out_file_name)
+            shutil.move(tmp_file.name, "./%s" % final_out_file_name)
+        else:
+            os.remove(tmp_file.name)
