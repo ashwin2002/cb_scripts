@@ -2,11 +2,17 @@
 import os
 import re
 import shutil
+import requests
 import sys
 import tempfile
 from argparse import ArgumentParser
+from datetime import timedelta
 
-import requests
+from couchbase.auth import PasswordAuthenticator
+from couchbase.cluster import Cluster
+from couchbase.options import (ClusterOptions, ClusterTimeoutOptions,
+                               QueryOptions)
+import couchbase.subdocument as SD
 
 
 daemon_killed = False
@@ -19,7 +25,13 @@ test_report_delimiter = '=' * 70
 test_report_stage = 0
 tmp_file = None
 final_out_file_name = None
+s3_url = "http://cb-logs-qe.s3-website-us-west-2.amazonaws.com"
+section_delimitter = "=" * 80
 
+
+def print_and_exit(msg, exit_code=1):
+    print(msg)
+    exit(exit_code)
 
 def process_install_steps(chunks):
     global install_block, timestamp_pattern, tmp_file, final_out_file_name
@@ -65,9 +77,10 @@ def process_install_steps(chunks):
     print("-" * 70)
     print("Install summary:")
     print("-" * 70)
-    print("   Started.....%s" % ts_occurances[0])
-    print("   End time....%s" % ts_occurances[-1])
-    print("   Elapsed.....%s" % time_elapsed)
+    if ts_occurances:
+        print("   Started.....%s" % ts_occurances[0])
+        print("   End time....%s" % ts_occurances[-1])
+        print("   Elapsed.....%s" % time_elapsed)
     for ips in [install_failed_ips, install_not_started_ips]:
         if ips:
             print('   ' + '\n'.join(ips))
@@ -132,15 +145,43 @@ def process_test_cases(remaining_lines, chunks):
 
 
 def stream_and_process(url_str):
-    with requests.get(url_str, stream=True) as r:
-        r.raise_for_status()
-        chunks = r.iter_content(chunk_size=8192)
-        _, remaining_lines = process_install_steps(chunks)
-        process_test_cases(remaining_lines, chunks)
+    try:
+        with requests.get(url_str, stream=True) as r:
+            r.raise_for_status()
+            chunks = r.iter_content(chunk_size=8192)
+            _, remaining_lines = process_install_steps(chunks)
+            process_test_cases(remaining_lines, chunks)
+    except (requests.exceptions.Timeout, requests.exceptions.HTTPError) as err:
+        print(err)
+
+def fetch_jobs_for_component(server_ip, username, password, bucket_name,
+                             version, os_type, component):
+    auth = PasswordAuthenticator(username, password)
+    options = ClusterOptions(auth)
+    cluster = Cluster(f'couchbase://{server_ip}', options)
+    cluster.wait_until_ready(timedelta(seconds=5))
+    collection = cluster.bucket(bucket_name).default_collection()
+    run_data = collection.lookup_in(f"{version}_server",
+                                    [SD.get(f"os.{os_type}.{component}")])
+    cluster.close()
+    return run_data.content_as[dict](0)
 
 
 def parse_cmd_arguments():
-    parser = ArgumentParser(description="Paser for TAF logs")
+    parser = ArgumentParser(description="Paser for test logs")
+    parser.add_argument("--server_ip", dest="gb_ip", default="",
+                        help="Server IP on which Couchbase db is hosted")
+    parser.add_argument("--username", dest="username", default="Administrator",
+                        help="Username to use login")
+    parser.add_argument("--password", dest="password", default="password",
+                        help="Password to use login")
+    parser.add_argument("--bucket", dest="gb_bucket", default="",
+                        help="Greenboard bucket name")
+    parser.add_argument("--os", dest="os_type", default="debian",
+                        help="Target OS for which to parse the jobs")
+    parser.add_argument("--component", dest="component", default="",
+                        help="Target component for which to parse the jobs")
+
     parser.add_argument("-v", "--version", dest="version", default=None,
                         help="Version on which the job has run")
     parser.add_argument("-b", "--build_num", dest="build_num", default=None,
@@ -164,28 +205,70 @@ if __name__ == '__main__':
     if arguments.url:
         url = arguments.url
     else:
-        if arguments.version is None or arguments.build_num is None:
-            print("Exiting: Pass both version and build_num")
-            exit(1)
+        if arguments.version is None:
+            print_and_exit("Exiting: Pass --version [Eg: 7.6.0-1000]")
 
-        job_name = None
-        if arguments.repo == "TAF":
-            job_name = "test_suite_executor-TAF"
-
-        s3_url = "http://cb-logs-qe.s3-website-us-west-2.amazonaws.com"
-        url = "%s/%s/jenkins_logs/%s/%s/consoleText.txt"\
-              % (s3_url, arguments.version, job_name, arguments.build_num)
+    if arguments.build_num:
+        jobs = {"dummy": [{"displayName": "temp", "olderBuild": False,
+                           "failCount": "NA", "totalCount": "NA",
+                           "build_id": arguments.build_num}]}
+    elif arguments.gb_ip and arguments.gb_bucket \
+            and arguments.os_type and arguments.component:
+        jobs = fetch_jobs_for_component(
+            arguments.gb_ip, arguments.username, arguments.password,
+            arguments.gb_bucket, arguments.version,
+            arguments.os_type.upper(), arguments.component.upper())
+        arguments.dont_save_content = True
+    else:
+        print_and_exit("Exiting: Pass --build_num")
 
     delete_tmp_file_flag = True if arguments.dont_save_content else False
     tmp_file = tempfile.NamedTemporaryFile(dir="/tmp",
                                            delete=delete_tmp_file_flag)
-    print("Writing into file: %s" % tmp_file.name)
-    stream_and_process(url)
-    if not arguments.dont_save_content:
-        user_input = input("Do you want to save this log ? [y/n]: ")
-        tmp_file.close()
-        if user_input.strip() in ["y", "Y"]:
-            print("Saving content into ./%s" % final_out_file_name)
-            shutil.move(tmp_file.name, "./%s" % final_out_file_name)
-        else:
-            os.remove(tmp_file.name)
+    result_tbl = dict()
+    for job_name, runs in jobs.items():
+        print(section_delimitter)
+        print("Job::%s, Total runs: %s" % (job_name, len(runs)))
+        print(section_delimitter)
+        for run in runs:
+            test_num = 0
+            is_best_run = ""
+            if arguments.url:
+                url = arguments.url
+            elif "url" in run:
+                jenkins_job = (run["url"].strip("/")).split('/')[-1]
+                if jenkins_job == "test_suite_executor-TAF":
+                    url = "%s/%s/jenkins_logs/%s/%s/consoleText.txt" \
+                          % (s3_url, arguments.version, jenkins_job,
+                             run["build_id"])
+                else:
+                    continue
+            else:
+                if arguments.repo == "TAF":
+                    jenkins_job = "test_suite_executor-TAF"
+                url = "%s/%s/jenkins_logs/%s/%s/consoleText.txt" \
+                      % (s3_url, arguments.version, jenkins_job,
+                         run["build_id"])
+            if not run["olderBuild"]:
+                is_best_run = " (Best run)"
+                result_tbl[run["displayName"]] = [run["failCount"],
+                                                  run["totalCount"]]
+            print("Parsing URL: %s %s" % (url, is_best_run))
+            stream_and_process(url)
+            if not arguments.dont_save_content:
+                user_input = input("Do you want to save this log ? [y/n]: ")
+                tmp_file.close()
+                if user_input.strip() in ["y", "Y"]:
+                    print("Saving content into ./%s" % final_out_file_name)
+                    shutil.move(tmp_file.name, "./%s" % final_out_file_name)
+                else:
+                    os.remove(tmp_file.name)
+        print("End of job: %s" % job_name)
+        print("")
+
+    print("| %s|%s|%s|" % ("-" * 30, "-" * 3, "-" * 3))
+    for job_name, result in result_tbl.items():
+        print("| %s %s %s " % (job_name.ljust(30, "."),
+                              result[0].rjust(3, " "),
+                              str(result[1]).rjust(3, " ")))
+    print("| %s|%s|%s|" % ("-" * 30, "-" * 3, "-" * 3))
