@@ -254,7 +254,10 @@ if __name__ == '__main__':
                 result_tbl[run["displayName"]] = [run["failCount"],
                                                   run["totalCount"]]
             print("Parsing URL: %s %s" % (url, is_best_run))
-            stream_and_process(url)
+            try:
+                stream_and_process(url)
+            except Exception as e:
+                print(e)
             if not arguments.dont_save_content:
                 user_input = input("Do you want to save this log ? [y/n]: ")
                 tmp_file.close()
