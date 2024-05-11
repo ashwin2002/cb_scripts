@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+
 import os
 import re
 import shutil
@@ -10,17 +11,17 @@ from datetime import timedelta
 
 from couchbase.auth import PasswordAuthenticator
 from couchbase.cluster import Cluster
-from couchbase.options import (ClusterOptions, ClusterTimeoutOptions,
-                               QueryOptions)
-import couchbase.subdocument as SD
+from couchbase.options import ClusterOptions
+import couchbase.subdocument as subdoc
 
 
 daemon_killed = False
 install_block = False
 test_case_started = False
-timestamp_pattern = re.compile("\d+-\d+-\d+ \d+:\d+:\d+,\d+")
-test_complete_line_pattern = re.compile("Ran 1 test in (\d+\.\d+s)")
+timestamp_pattern = re.compile(r"\d+-\d+-\d+ \d+:\d+:\d+,\d+")
+test_complete_line_pattern = re.compile(r"Ran 1 test in (\d+\.\d+s)")
 test_num = 0
+test_result = None
 test_report_delimiter = '=' * 70
 test_report_stage = 0
 tmp_file = None
@@ -33,15 +34,17 @@ def print_and_exit(msg, exit_code=1):
     print(msg)
     exit(exit_code)
 
+
 def process_install_steps(chunks):
     global install_block, timestamp_pattern, tmp_file, final_out_file_name
 
     install_logs = ""
     install_complete = False
-    install_failed_pattern = re.compile("FAILED ON[\t :]+\d+\.\d+\.\d+\.\d+")
-    install_not_started_pattern = re.compile("NOT STARTED ON:[\t :]+\d+\.\d+\.\d+\.\d+")
+    install_failed_pattern = re.compile(r"FAILED ON[\t :]+\d+\.\d+\.\d+\.\d+")
+    install_not_started_pattern = re.compile(
+        r"NOT STARTED ON:[\t :]+\d+\.\d+\.\d+\.\d+")
     time_elapsed = None
-    desc_set_log = re.compile("\[description-setter] Description set: (.*)")
+    desc_set_log = re.compile(r"\[description-setter] Description set: (.*)")
     l_idx = 0
     chunk = ['']
     for chunk in chunks:
@@ -55,7 +58,8 @@ def process_install_steps(chunks):
                 install_logs += line + "\n"
                 install_block = False
                 install_complete = True
-                elapsed_pattern = re.compile(".*TOTAL INSTALL TIME = (\d+ seconds)")
+                elapsed_pattern = re.compile(
+                    r".*TOTAL INSTALL TIME = (\d+ seconds)")
                 time_elapsed = elapsed_pattern.match(line)
                 if time_elapsed:
                     time_elapsed = time_elapsed[1]
@@ -90,7 +94,8 @@ def process_install_steps(chunks):
 
 
 def process_test_line(line):
-    global daemon_killed, test_case_started, test_report_stage, test_num
+    global daemon_killed, test_case_started, test_report_stage,\
+        test_num, test_result
 
     if line.strip() == '':
         return
@@ -102,20 +107,24 @@ def process_test_line(line):
 
     if line.startswith("Test Input params:"):
         test_num += 1
-        print("\nParsing test: %s" % test_num)
+        print(f"\nTest #{test_num} ... ", end='')
         test_case_started = True
         return
 
     test_complete_line = test_complete_line_pattern.match(line)
     if test_complete_line:
-        print("Test time elapsed....%s\n" % test_complete_line[1])
+        if not test_result:
+            test_result = "OK"
+        print(f"{test_result}\nTest time elapsed....{test_complete_line[1]}")
         test_case_started = False
+        test_result = None
         return
 
     if test_case_started:
         if test_report_stage == 0 and line == test_report_delimiter:
             test_report_stage = 1
             print("Test failure report:")
+            test_result = "FAILED"
             return
         if test_report_stage > 0:
             print(line)
@@ -154,6 +163,7 @@ def stream_and_process(url_str):
     except (requests.exceptions.Timeout, requests.exceptions.HTTPError) as err:
         print(err)
 
+
 def fetch_jobs_for_component(server_ip, username, password, bucket_name,
                              version, os_type, component):
     auth = PasswordAuthenticator(username, password)
@@ -162,7 +172,7 @@ def fetch_jobs_for_component(server_ip, username, password, bucket_name,
     cluster.wait_until_ready(timedelta(seconds=5))
     collection = cluster.bucket(bucket_name).default_collection()
     run_data = collection.lookup_in(f"{version}_server",
-                                    [SD.get(f"os.{os_type}.{component}")])
+                                    [subdoc.get(f"os.{os_type}.{component}")])
     cluster.close()
     return run_data.content_as[dict](0)
 
@@ -197,6 +207,10 @@ def parse_cmd_arguments():
     parser.add_argument("--dont_save", dest="dont_save_content", default=False,
                         action="store_true",
                         help="Won't save the content locally after parsing")
+    parser.add_argument("--only_best_run", dest="check_only_best_run",
+                        default=True, action="store_true",
+                        help="Parse only best run logs and discard other "
+                             "other runs for the sub-component")
     return parser.parse_args(sys.argv[1:])
 
 
@@ -207,6 +221,10 @@ if __name__ == '__main__':
     else:
         if arguments.version is None:
             print_and_exit("Exiting: Pass --version [Eg: 7.6.0-1000]")
+
+    jobs = None
+    jenkins_job = None
+    job_name = "dummy"
 
     if arguments.build_num:
         jobs = {"dummy": [{"displayName": "temp", "olderBuild": False,
@@ -237,7 +255,8 @@ if __name__ == '__main__':
                 url = arguments.url
             elif "url" in run:
                 jenkins_job = (run["url"].strip("/")).split('/')[-1]
-                if jenkins_job == "test_suite_executor-TAF":
+                if jenkins_job in ["test_suite_executor-TAF",
+                                   "test_suite_executor"]:
                     url = "%s/%s/jenkins_logs/%s/%s/consoleText.txt" \
                           % (s3_url, arguments.version, jenkins_job,
                              run["build_id"])
@@ -246,6 +265,8 @@ if __name__ == '__main__':
             else:
                 if arguments.repo == "TAF":
                     jenkins_job = "test_suite_executor-TAF"
+                elif arguments.repo == "testrunner":
+                    jenkins_job = "test_suite_executor"
                 url = "%s/%s/jenkins_logs/%s/%s/consoleText.txt" \
                       % (s3_url, arguments.version, jenkins_job,
                          run["build_id"])
@@ -253,6 +274,9 @@ if __name__ == '__main__':
                 is_best_run = " (Best run)"
                 result_tbl[run["displayName"]] = [run["failCount"],
                                                   run["totalCount"]]
+            if arguments.check_only_best_run and not is_best_run:
+                continue
+
             print("Parsing URL: %s %s" % (url, is_best_run))
             try:
                 stream_and_process(url)
@@ -269,9 +293,14 @@ if __name__ == '__main__':
         print("End of job: %s" % job_name)
         print("")
 
-    print("| %s|%s|%s|" % ("-" * 30, "-" * 3, "-" * 3))
-    for job_name, result in result_tbl.items():
-        print("| %s %s %s " % (job_name.ljust(30, "."),
-                              result[0].rjust(3, " "),
-                              str(result[1]).rjust(3, " ")))
-    print("| %s|%s|%s|" % ("-" * 30, "-" * 3, "-" * 3))
+    if job_name != "dummy":
+        test_desc_len = 80
+        print("| %s|%s|%s|" % ("-" * test_desc_len, "-" * 8, "-" * 7))
+        print("| %s|%s|%s|" % ("Description".ljust(test_desc_len, "."),
+                               " Failed ", " Total "))
+        print("| %s|%s|%s|" % ("-" * test_desc_len, "-" * 8, "-" * 7))
+        for job_name, result in result_tbl.items():
+            print("| %s %s %s " % (job_name.ljust(test_desc_len, "."),
+                                   str(result[0]).rjust(8, " "),
+                                   str(result[1]).rjust(7, " ")))
+        print("| %s|%s|%s|" % ("-" * test_desc_len, "-" * 8, "-" * 7))
