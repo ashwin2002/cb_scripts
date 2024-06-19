@@ -87,7 +87,6 @@ def parse_tcs(sdk_conn, cb_version, job_run_id, jenkins_build_num, xml_text):
             doc[cb_version].append(
                 {str(jenkins_build_num): parsed_case["status"]})
             sdk_conn.upsert_sub_doc(tc_hash, "runs", doc)
-            exit(0)
 
 
 if __name__ == "__main__":
