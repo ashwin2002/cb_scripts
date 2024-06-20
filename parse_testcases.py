@@ -25,10 +25,18 @@ def parse_cmd_arguments():
                         help="Greenboard bucket name")
     parser.add_argument("--os", dest="os_type", default="DEBIAN",
                         help="Target OS for which to parse the jobs")
-    parser.add_argument("--component", dest="component", required=True,
+    parser.add_argument("--component", dest="component", required=None,
                         help="Target component for which to parse the jobs")
+
     parser.add_argument("-v", "--version", dest="version", required=True,
-                        help="Version on which the job has run")
+                        help="Couchbase version on which the job has run")
+
+    parser.add_argument("--job_url", dest="job_url", default=None,
+                        help="Job URL excluding the build_num")
+    parser.add_argument("--job_num", dest="job_num", default=None,
+                        help="Job's build_num")
+    parser.add_argument("--job_name", dest="job_name", default=None,
+                        help="Job_name used in creating the greenboard entry")
 
     return parser.parse_args(sys.argv[1:])
 
@@ -68,38 +76,38 @@ def parse_tcs(sdk_conn, cb_version, job_run_id, jenkins_build_num, xml_text):
             try:
                 _ = sdk_conn.get_doc(tc_hash)
             except DocumentNotFoundException:
-                print("Creating new test")
+                print(f"Creating new test for: {tc}")
                 sdk_conn.collection.insert(tc_hash,
                                            {"function": tc,
                                             "params": dict(params),
                                             "job_name": job_run_id,
                                             "runs": {}})
-            sub_path = f"runs.`{cb_version}`"
+            cb_release, cb_build_num = cb_version.split("-")
+            sub_path = f"runs.`{cb_release}`.`{cb_build_num}`"
             # Create version field (if_req)
             try:
                 _ = sdk_conn.get_sub_doc_as_list(tc_hash, sub_path)
             except PathNotFoundException:
                 # Create place-holder for this version
-                print(f"New run on build: {cb_version}")
-                sdk_conn.insert_sub_doc(tc_hash, sub_path, [])
+                print(f"New run on build: {cb_release}")
+                sdk_conn.insert_sub_doc(tc_hash, sub_path, [],
+                                        create_parents=True)
 
-            doc = sdk_conn.get_sub_doc_as_dict(tc_hash, "runs")
-            doc[cb_version].append(
-                {str(jenkins_build_num): parsed_case["status"]})
-            sdk_conn.upsert_sub_doc(tc_hash, "runs", doc)
+            doc = sdk_conn.get_sub_doc_as_dict(tc_hash, f"runs.`{cb_release}`")
+            jenkins_build_num = str(jenkins_build_num)
+            for run in doc[cb_build_num]:
+                if list(run.keys())[0] == jenkins_build_num:
+                    break
+            else:
+                doc[cb_build_num].append(
+                    {jenkins_build_num: parsed_case["status"]})
+                sdk_conn.upsert_sub_doc(tc_hash, f"runs.`{cb_release}`", doc)
 
 
 if __name__ == "__main__":
     arguments = parse_cmd_arguments()
     s3_url_prefix = "http://cb-logs-qe.s3-website-us-west-2.amazonaws.com/" \
                     f"{arguments.version}/jenkins_logs"
-
-    test_run_info_sdk = SDKClient(arguments.gb_ip, arguments.username,
-                                  arguments.password, arguments.gb_bucket)
-    run_doc = test_run_info_sdk.get_sub_doc_as_dict(
-        f"{arguments.version}_server",
-        f"os.{arguments.os_type.upper()}.{arguments.component.upper()}")
-    test_run_info_sdk.close()
 
     tc_db_ip = getenv("tc_db_ip")
     tc_db_username = getenv("tc_db_username")
@@ -108,26 +116,49 @@ if __name__ == "__main__":
     tc_tracker_sdk = SDKClient(tc_db_ip, tc_db_username, tc_db_password,
                                tc_db_bucket)
 
-    for job_name, run_list in run_doc.items():
-        # # Create doc per job (if_required)
-        # try:
-        #     _ = tc_tracker_sdk.get_doc(job_name)
-        # except DocumentNotFoundException:
-        #     print(f"New job: {job_name}")
-        #     tc_tracker_sdk.collection.insert(job_name, {})
-
-        for run in run_list:
-            exec_job_type = run["url"].split("/")[-2]
-            s3_job_url = f"{s3_url_prefix}/{exec_job_type}/{run['build_id']}/"
-            test_result_url = s3_job_url + "testresult.xml"
-            print(test_result_url)
-            xml_text_data = requests.get(test_result_url).text
-            if "404 Not Found" in xml_text_data:
-                print(f"Job: {job_name}, testresult.xml not found")
-                continue
+    if arguments.job_url is not None \
+            and arguments.job_num is not None\
+            and arguments.job_name is not None:
+        exec_job_type = str(arguments.job_url).rstrip("/")
+        exec_job_type = exec_job_type.split("/")[-1]
+        s3_job_url = f"{s3_url_prefix}/{exec_job_type}/{arguments.job_num}/"
+        job_name = arguments.job_name
+        test_result_url = s3_job_url + "testresult.xml"
+        print(test_result_url)
+        xml_text_data = requests.get(test_result_url).text
+        if "404 Not Found" in xml_text_data:
+            print(f"Job::testresult.xml not found")
+        else:
             parse_tcs(tc_tracker_sdk, arguments.version,
-                      job_name, run['build_id'], xml_text_data)
+                      job_name, arguments.job_num, xml_text_data)
+    else:
+        test_run_info_sdk = SDKClient(arguments.gb_ip, arguments.username,
+                                      arguments.password, arguments.gb_bucket)
+        run_doc = test_run_info_sdk.get_sub_doc_as_dict(
+            f"{arguments.version}_server",
+            f"os.{arguments.os_type.upper()}.{arguments.component.upper()}")
+        test_run_info_sdk.close()
 
-            # if str(run["url"]).endswith("/test_suite_executor-TAF/"):
+        for job_name, run_list in run_doc.items():
+            # # Create doc per job (if_required)
+            # try:
+            #     _ = tc_tracker_sdk.get_doc(job_name)
+            # except DocumentNotFoundException:
+            #     print(f"New job: {job_name}")
+            #     tc_tracker_sdk.collection.insert(job_name, {})
+
+            for run in run_list:
+                exec_job_type = run["url"].split("/")[-2]
+                s3_job_url = f"{s3_url_prefix}/{exec_job_type}/{run['build_id']}/"
+                test_result_url = s3_job_url + "testresult.xml"
+                print(test_result_url)
+                xml_text_data = requests.get(test_result_url).text
+                if "404 Not Found" in xml_text_data:
+                    print(f"Job: {job_name}, testresult.xml not found")
+                    continue
+                parse_tcs(tc_tracker_sdk, arguments.version,
+                          job_name, run['build_id'], xml_text_data)
+
+                # if str(run["url"]).endswith("/test_suite_executor-TAF/"):
 
     tc_tracker_sdk.close()
