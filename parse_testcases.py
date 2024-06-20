@@ -1,5 +1,6 @@
 import hashlib
 import json
+import re
 import requests
 import sys
 import xml.etree.ElementTree as EleTree
@@ -119,11 +120,22 @@ if __name__ == "__main__":
     if arguments.job_url is not None \
             and arguments.job_num is not None\
             and arguments.job_name is not None:
-        exec_job_type = str(arguments.job_url).rstrip("/")
-        exec_job_type = exec_job_type.split("/")[-1]
-        s3_job_url = f"{s3_url_prefix}/{exec_job_type}/{arguments.job_num}/"
+        job_url = str(arguments.job_url).rstrip("/")
+        exec_job_type = job_url.split("/")[-1]
         job_name = arguments.job_name
+
+        """
+        exec_job_type = job_url.split("/")[-1]
+        s3_job_url = f"{s3_url_prefix}/{exec_job_type}/{arguments.job_num}/"
         test_result_url = s3_job_url + "testresult.xml"
+        """
+
+        r = requests.get(f"{job_url}/{arguments.job_num}/artifact/job_logs/")
+        file_name_pattern = re.compile(
+            "<a href=\"([a-zA-Z0-9\-_]+testresult\.xml)\"")
+        xml_file_name = file_name_pattern.findall(r.text)[0]
+        test_result_url = f"{job_url}/{arguments.job_num}/artifact/" \
+                          f"job_logs/{xml_file_name}"
         print(test_result_url)
         xml_text_data = requests.get(test_result_url).text
         if "404 Not Found" in xml_text_data:
