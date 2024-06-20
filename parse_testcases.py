@@ -26,7 +26,7 @@ def parse_cmd_arguments():
                         help="Greenboard bucket name")
     parser.add_argument("--os", dest="os_type", default="DEBIAN",
                         help="Target OS for which to parse the jobs")
-    parser.add_argument("--component", dest="component", required=None,
+    parser.add_argument("--component", dest="component",
                         help="Target component for which to parse the jobs")
 
     parser.add_argument("-v", "--version", dest="version", required=True,
@@ -96,8 +96,8 @@ def parse_tcs(sdk_conn, cb_version, job_run_id, jenkins_build_num, xml_text):
 
             doc = sdk_conn.get_sub_doc_as_dict(tc_hash, f"runs.`{cb_release}`")
             jenkins_build_num = str(jenkins_build_num)
-            for run in doc[cb_build_num]:
-                if list(run.keys())[0] == jenkins_build_num:
+            for t_run in doc[cb_build_num]:
+                if list(t_run.keys())[0] == jenkins_build_num:
                     break
             else:
                 doc[cb_build_num].append(
@@ -132,7 +132,7 @@ if __name__ == "__main__":
 
         r = requests.get(f"{job_url}/{arguments.job_num}/artifact/job_logs/")
         file_name_pattern = re.compile(
-            "<a href=\"([a-zA-Z0-9\-_]+testresult\.xml)\"")
+            r"<a href=\"([a-zA-Z0-9\-_]+testresult\.xml)\"")
         xml_file_name = file_name_pattern.findall(r.text)[0]
         test_result_url = f"{job_url}/{arguments.job_num}/artifact/" \
                           f"job_logs/{xml_file_name}"
@@ -161,7 +161,8 @@ if __name__ == "__main__":
 
             for run in run_list:
                 exec_job_type = run["url"].split("/")[-2]
-                s3_job_url = f"{s3_url_prefix}/{exec_job_type}/{run['build_id']}/"
+                s3_job_url = \
+                    f"{s3_url_prefix}/{exec_job_type}/{run['build_id']}/"
                 test_result_url = s3_job_url + "testresult.xml"
                 print(test_result_url)
                 xml_text_data = requests.get(test_result_url).text
