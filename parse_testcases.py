@@ -58,6 +58,7 @@ def parse_tcs(sdk_conn, cb_version, job_run_id, jenkins_build_num, xml_text):
             case_str = case_str.split(",")
             tc = case_str[0]
             params = dict()
+            print(case_str)
             for param in case_str[1:]:
                 key, value = param.split('=')
                 if key in ['GROUP', 'ini', 'total_testcases',
@@ -114,6 +115,7 @@ if __name__ == "__main__":
     tc_db_username = getenv("tc_db_username")
     tc_db_password = getenv("tc_db_password")
     tc_db_bucket = getenv("tc_db_bucket")
+    print("Connecting SDK to cluster")
     tc_tracker_sdk = SDKClient(tc_db_ip, tc_db_username, tc_db_password,
                                tc_db_bucket)
 
@@ -124,23 +126,28 @@ if __name__ == "__main__":
         exec_job_type = job_url.split("/")[-1]
         job_name = arguments.job_name
 
-        """
-        exec_job_type = job_url.split("/")[-1]
         s3_job_url = f"{s3_url_prefix}/{exec_job_type}/{arguments.job_num}/"
         test_result_url = s3_job_url + "testresult.xml"
-        """
-
-        r = requests.get(f"{job_url}/{arguments.job_num}/artifact/job_logs/")
-        file_name_pattern = re.compile(
-            r"<a href=\"([a-zA-Z0-9\-_]+testresult\.xml)\"")
-        xml_file_name = file_name_pattern.findall(r.text)[0]
-        test_result_url = f"{job_url}/{arguments.job_num}/artifact/" \
-                          f"job_logs/{xml_file_name}"
-        print(test_result_url)
         xml_text_data = requests.get(test_result_url).text
+        print(f"Trying to get: {test_result_url}")
         if "404 Not Found" in xml_text_data:
-            print(f"Job::testresult.xml not found")
+            jenkins_link = f"{job_url}/{arguments.job_num}/artifact/job_logs/"
+            print(f"Fetching from Jenkins: {jenkins_link}")
+            r = requests.get(jenkins_link)
+            file_name_pattern = re.compile(
+                r"<a href=\"([a-zA-Z0-9\-_]+testresult\.xml)\"")
+            matches = file_name_pattern.findall(r.text)
+            if matches:
+                xml_file_name = matches[0]
+                test_result_url = f"{job_url}/{arguments.job_num}/artifact/" \
+                                  f"job_logs/{xml_file_name}"
+                print(test_result_url)
+                xml_text_data = requests.get(test_result_url).text
+                data_found = True
+            else:
+                print("No link for testresult.xml found")
         else:
+            print("Parsing tests:")
             parse_tcs(tc_tracker_sdk, arguments.version,
                       job_name, arguments.job_num, xml_text_data)
     else:
