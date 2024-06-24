@@ -1,0 +1,29 @@
+---
+- name: "Executor slave setup"
+  hosts: all
+  become: yes
+
+  vars_files:
+    - constants.yml
+
+  tasks:
+    - name: "Install Debian packages"
+      include_tasks: "debian/setup_system_packages.yml"
+
+    - name: "Setting up Python"
+      include_tasks: "common/setup_pyenv.yml"
+
+    - name: "Setting up Docker"
+      include_tasks: "debian/setup_docker.yml"
+
+    - name: "Setting up Golang"
+      include_tasks: "common/setup_golang.yml"
+
+    - name: "Setup Jenkins' workspace"
+      include_tasks: "common/setup_jenkins.yml"
+
+    - name: "Setting up Java"
+      include_tasks: "debian/setup_jdk.yml"
+
+    - name: "Setting up Jython"
+      include_tasks: "common/setup_jython.yml"

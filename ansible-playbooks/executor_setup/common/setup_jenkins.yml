@@ -1,0 +1,5 @@
+---
+- name: "Create required directories"
+  file:
+    path: /data/workspace
+    state: directory

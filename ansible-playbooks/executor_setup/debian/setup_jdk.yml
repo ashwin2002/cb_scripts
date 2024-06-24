@@ -1,0 +1,19 @@
+---
+- name: "Updating deb apt source for JDK"
+  lineinfile:
+    path: "/etc/apt/sources.list"
+    line: "deb http://deb.debian.org/debian/ sid main"
+    insertafter: EOF
+    create: yes
+    state: present
+
+- name: "Update apt package cache"
+  apt:
+    update_cache: yes
+
+- name: "Install OpenJDK 8"
+  apt:
+    name: openjdk-8-jdk
+    state: present
+  environment:
+    DEBIAN_FRONTEND: noninteractive

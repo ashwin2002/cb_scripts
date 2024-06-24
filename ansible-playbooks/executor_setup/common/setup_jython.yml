@@ -1,0 +1,21 @@
+---
+- name: "Create Jython paths"
+  file:
+    path: "{{ jython_path }}"
+    state: directory
+
+- name: "Downloading Jython {{ jython_version }}"
+  get_url:
+    url: "https://repo1.maven.org/maven2/org/python/jython-installer/{{ jython_version }}/jython-installer-{{ jython_version }}.jar"
+    dest: "/tmp/jython-installer-{{ jython_version }}.jar"
+
+- name: "Installing Jython using jar"
+  shell: "java -jar /tmp/jython-installer-{{ jython_version }}.jar -d {{ jython_path }} -s"
+
+- name: "Removing downloaded jar file"
+  file:
+    path: "/tmp/jython-installer-{{ jython_version }}.jar"
+    state: absent
+
+- name: "Installing Jython packages"
+  shell: "curl https://raw.githubusercontent.com/couchbaselabs/TAF/master/requirements.txt | grep -v \"#\" | xargs {{ jython_bin }}/easy_install"

@@ -1,0 +1,6 @@
+---
+- name: "Update apt"
+  shell: apt-get update
+
+- name: "Installing packages"
+  shell: "apt-get install -y {{ debian_packages_to_install | join(' ') }}"
