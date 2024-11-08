@@ -7,19 +7,33 @@ import requests
 import sys
 import tempfile
 from argparse import ArgumentParser
-from datetime import timedelta
+from datetime import datetime, timedelta
 
-from couchbase.auth import PasswordAuthenticator
-from couchbase.cluster import Cluster
-from couchbase.options import ClusterOptions
+from couchbase.exceptions import DocumentNotFoundException
+from couchbase.options import LookupInOptions
 import couchbase.subdocument as subdoc
 
+from sdk_lib.sdk_conn import SDKClient
 
+run_analyzer = {
+    "host": "172.23.104.162",
+    "username": "Administrator",
+    "password": "esabhcuoc",
+    "bucket_name": "gb_cases",
+    "scope": "_default",
+    "collection": "run_analysis",
+    "sdk_client": None,
+    "sdk_collection": None,
+}
+
+datetime_format = "%Y-%m-%d %H:%M:%S.%f"
 daemon_killed = False
 install_block = False
 test_case_started = False
 timestamp_pattern = re.compile(r"\d+-\d+-\d+ \d+:\d+:\d+,\d+")
+test_timestamp_pattern = re.compile(r"^([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2},[0-9]+) ")
 test_complete_line_pattern = re.compile(r"Ran 1 test in (\d+\.\d+s)")
+branch_used_pattern = re.compile(r"/usr/bin/git rev-parse ([a-zA-Z0-9_\-/]+)\^{commit}")
 test_num = 0
 test_result = None
 test_report_delimiter = '=' * 70
@@ -28,6 +42,16 @@ tmp_file = None
 final_out_file_name = None
 s3_url = "http://cb-logs-qe.s3-website-us-west-2.amazonaws.com"
 section_delimitter = "=" * 80
+job_details = None
+build_aborted_pattern = re.compile(
+    r"Build timed out \(after ([0-9]+ [a-zA-Z]+)\)\. "
+    r"Marking the build as aborted.")
+
+
+def log(msg):
+    if arguments.only_analyze:
+        return
+    print(msg)
 
 
 def print_and_exit(msg, exit_code=1):
@@ -36,7 +60,8 @@ def print_and_exit(msg, exit_code=1):
 
 
 def process_install_steps(chunks):
-    global install_block, timestamp_pattern, tmp_file, final_out_file_name
+    global install_block, timestamp_pattern, tmp_file, final_out_file_name, \
+        job_details, run_analyzer
 
     install_logs = ""
     install_complete = False
@@ -51,6 +76,35 @@ def process_install_steps(chunks):
         tmp_file.write(chunk)
         chunk = chunk.decode("utf-8").split("\n")
         for l_idx, line in enumerate(chunk):
+            if "executor_name" not in job_details:
+                line_match = re.compile(
+                    r"Building remotely on ([0-9a-zA-Z\-_]+) ").findall(line)
+                if line_match:
+                    job_details["executor_name"] = line_match[0]
+            elif "branch_used" not in job_details:
+                line_match = branch_used_pattern.findall(line)
+                if line_match:
+                    job_details["branch_used"] = line_match[0]
+            elif "commit_ref" not in job_details:
+                commit_ref_pattern = \
+                    r"Checking out Revision ([0-9a-zA-Z]+) \(%s\)" \
+                    % job_details["branch_used"]
+                commit_ref_pattern = re.compile(commit_ref_pattern)
+                line_match = commit_ref_pattern.findall(line)
+                if line_match:
+                    job_details["commit_ref"] = line_match[0]
+            # elif "commit_msg" not in job_details:
+            #     commit_msg_pattern = re.compile("Commit message: \"(.*)\"")
+            #     line_match = commit_msg_pattern.findall(line)
+            #     if line_match:
+            #         job_details["commit_msg"] = line_match[0]
+            elif "servers" not in job_details:
+                server_info_pattern = re.compile(
+                    r"the given server info is ([\"0-9.,]+)")
+                line_match = server_info_pattern.findall(line)
+                if line_match:
+                    job_details["servers"] = line_match[0].replace("\"", "").split(',')
+
             desc_log = desc_set_log.match(line)
             if "python3 scripts/new_install.py" in line:
                 install_block = True
@@ -78,10 +132,13 @@ def process_install_steps(chunks):
     ts_occurances = timestamp_pattern.findall(install_logs)
     install_failed_ips = install_failed_pattern.findall(install_logs)
     install_not_started_ips = install_not_started_pattern.findall(install_logs)
+    if install_failed_ips or install_not_started_ips:
+        job_details["run_note"] = "install_failed"
     print("-" * 70)
     print("Install summary:")
     print("-" * 70)
     if ts_occurances:
+        print("   Servers.....%s" % job_details["servers"])
         print("   Started.....%s" % ts_occurances[0])
         print("   End time....%s" % ts_occurances[-1])
         print("   Elapsed.....%s" % time_elapsed)
@@ -95,7 +152,7 @@ def process_install_steps(chunks):
 
 def process_test_line(line):
     global daemon_killed, test_case_started, test_report_stage,\
-        test_num, test_result
+        test_num, test_result, datetime_format
 
     if line.strip() == '':
         return
@@ -111,6 +168,22 @@ def process_test_line(line):
         test_case_started = True
         return
 
+    if "test_first_recorded_timestamp" not in job_details:
+        line_match = test_timestamp_pattern.findall(line)
+        if line_match:
+            datetime_str = line_match[0].replace(",", ".")
+            dt_object = datetime.strptime(datetime_str, datetime_format)
+            unix_timestamp = int(dt_object.timestamp())
+            job_details["test_first_recorded_timestamp"] = unix_timestamp
+    else:
+        line_match = test_timestamp_pattern.findall(line)
+        if line_match:
+            datetime_str = line_match[0].replace(",", ".")
+            dt_object = datetime.strptime(datetime_str, datetime_format)
+            unix_timestamp = int(dt_object.timestamp())
+            job_details["test_last_recorded_timestamp"] = unix_timestamp
+
+    # To check the test is completed
     test_complete_line = test_complete_line_pattern.match(line)
     if test_complete_line:
         if not test_result:
@@ -118,6 +191,15 @@ def process_test_line(line):
         print(f"{test_result}\nTest time elapsed....{test_complete_line[1]}")
         test_case_started = False
         test_result = None
+        return
+
+    # To check the build is aborted
+    line_match = build_aborted_pattern.findall(line)
+    if line_match:
+        job_details["run_note"] = "build_aborted"
+        test_case_started = False
+        test_result = "ABORT"
+        print("Build Timed out")
         return
 
     if test_case_started:
@@ -166,15 +248,28 @@ def stream_and_process(url_str):
 
 def fetch_jobs_for_component(server_ip, username, password, bucket_name,
                              version, os_type, component):
-    auth = PasswordAuthenticator(username, password)
-    options = ClusterOptions(auth)
-    cluster = Cluster(f'couchbase://{server_ip}', options)
-    cluster.wait_until_ready(timedelta(seconds=5))
-    collection = cluster.bucket(bucket_name).default_collection()
-    run_data = collection.lookup_in(f"{version}_server",
-                                    [subdoc.get(f"os.{os_type}.{component}")])
-    cluster.close()
+    client = SDKClient(server_ip, username, password, bucket_name)
+    run_data = client.collection.lookup_in(
+        f"{version}_server",
+        [subdoc.get(f"os.{os_type}.{component}")],
+        LookupInOptions(timeout=timedelta(seconds=30)))
+    client.close()
     return run_data.content_as[dict](0)
+
+
+def record_details(version, os_name, j_name, j_details):
+    global run_analyzer
+    # To make sure the doc exists
+    try:
+        run_analyzer["sdk_client"].collection.get(version)
+    except DocumentNotFoundException:
+        run_analyzer["sdk_client"].collection.insert(version, {})
+    doc_path = f"os.`{os_name}`.`{j_name}`"
+    run_analyzer["sdk_client"].upsert_sub_doc(version, doc_path, j_details,
+                                              create_parents=True)
+    from time import sleep
+    print("SLEEP")
+    sleep(100000)
 
 
 def parse_cmd_arguments():
@@ -240,6 +335,13 @@ if __name__ == '__main__':
     else:
         print_and_exit("Exiting: Pass --build_num")
 
+    run_analyzer["sdk_client"] = SDKClient(
+        run_analyzer["host"],
+        run_analyzer["username"],
+        run_analyzer["password"],
+        run_analyzer["bucket_name"])
+    run_analyzer["sdk_client"].select_collection(
+        run_analyzer["scope"], run_analyzer["collection"])
     delete_tmp_file_flag = True if arguments.dont_save_content else False
     tmp_file = tempfile.NamedTemporaryFile(dir="/tmp",
                                            delete=delete_tmp_file_flag)
@@ -278,6 +380,7 @@ if __name__ == '__main__':
                 continue
 
             print("Parsing URL: %s %s" % (url, is_best_run))
+            job_details = {"run_note": None}
             try:
                 stream_and_process(url)
             except Exception as e:
@@ -291,6 +394,9 @@ if __name__ == '__main__':
                 else:
                     os.remove(tmp_file.name)
         print("End of job: %s" % job_name)
+        if job_name != "dummy":
+            record_details(arguments.version, arguments.os_type,
+                           job_name, job_details)
         print("")
 
     if job_name != "dummy":

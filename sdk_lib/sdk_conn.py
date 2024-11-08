@@ -47,9 +47,11 @@ class SDKClient(object):
             key, [SD.insert(sub_doc_path, sub_doc_value,
                   create_parents=create_parents)])
 
-    def upsert_sub_doc(self, key, sub_doc_path, sub_doc_value):
+    def upsert_sub_doc(self, key, sub_doc_path, sub_doc_value,
+                       create_parents=False):
         self.collection.mutate_in(
-            key, [SD.upsert(sub_doc_path, sub_doc_value)])
+            key, [SD.upsert(sub_doc_path, sub_doc_value,
+                            create_parents=create_parents)])
 
     def sub_doc_prepend_array(self, key, sub_doc_path, value):
         print(sub_doc_path)
