@@ -188,6 +188,7 @@ def process_test_line(line):
     if test_complete_line:
         if not test_result:
             test_result = "OK"
+            job_details["tests"].append({"result": "PASS"})
         print(f"{test_result}\nTest time elapsed....{test_complete_line[1]}")
         test_case_started = False
         test_result = None
@@ -199,6 +200,7 @@ def process_test_line(line):
         job_details["run_note"] = "build_aborted"
         test_case_started = False
         test_result = "ABORT"
+        job_details["tests"].append({"result": "NA"})
         print("Build Timed out")
         return
 
@@ -207,9 +209,11 @@ def process_test_line(line):
             test_report_stage = 1
             print("Test failure report:")
             test_result = "FAILED"
+            job_details["tests"].append({"result": "FAIL", "backtrace": ""})
             return
         if test_report_stage > 0:
             print(line)
+            (job_details["tests"][-1])["backtrace"] += line
             if test_report_stage == 1 and line == '-' * 70:
                 test_report_stage = 2
             elif test_report_stage == 2 and line == '-' * 70:
@@ -257,15 +261,16 @@ def fetch_jobs_for_component(server_ip, username, password, bucket_name,
     return run_data.content_as[dict](0)
 
 
-def record_details(version, os_name, j_name, j_details):
+def record_details(version, j_name, r_num, j_details):
     global run_analyzer
+    doc_key = f"{version}_{j_name}"
+    doc_path = f"runs.{r_num}"
     # To make sure the doc exists
     try:
-        run_analyzer["sdk_client"].collection.get(version)
+        run_analyzer["sdk_client"].get_doc(doc_key)
     except DocumentNotFoundException:
-        run_analyzer["sdk_client"].collection.insert(version, {})
-    doc_path = f"os.`{os_name}`.`{j_name}`"
-    run_analyzer["sdk_client"].upsert_sub_doc(version, doc_path, j_details,
+        run_analyzer["sdk_client"].collection.insert(doc_key, {})
+    run_analyzer["sdk_client"].upsert_sub_doc(doc_key, doc_path, j_details,
                                               create_parents=True)
 
 
@@ -347,7 +352,7 @@ if __name__ == '__main__':
         print(section_delimitter)
         print("Job::%s, Total runs: %s" % (job_name, len(runs)))
         print(section_delimitter)
-        for run in runs:
+        for run_num, run in enumerate(runs[::-1]):
             test_num = 0
             is_best_run = ""
             if arguments.url:
@@ -377,11 +382,15 @@ if __name__ == '__main__':
                 continue
 
             print("Parsing URL: %s %s" % (url, is_best_run))
-            job_details = {"run_note": None}
+            job_details = {"run_note": None, "job_id": run["build_id"],
+                           "tests": []}
             try:
                 stream_and_process(url)
             except Exception as e:
                 print(e)
+            if job_name != "dummy":
+                record_details(arguments.version, job_name, run_num+1,
+                               job_details)
             if not arguments.dont_save_content:
                 user_input = input("Do you want to save this log ? [y/n]: ")
                 tmp_file.close()
@@ -391,9 +400,6 @@ if __name__ == '__main__':
                 else:
                     os.remove(tmp_file.name)
         print("End of job: %s" % job_name)
-        if job_name != "dummy":
-            record_details(arguments.version, arguments.os_type,
-                           job_name, job_details)
         print("")
 
     if job_name != "dummy":
