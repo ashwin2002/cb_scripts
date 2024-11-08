@@ -267,9 +267,6 @@ def record_details(version, os_name, j_name, j_details):
     doc_path = f"os.`{os_name}`.`{j_name}`"
     run_analyzer["sdk_client"].upsert_sub_doc(version, doc_path, j_details,
                                               create_parents=True)
-    from time import sleep
-    print("SLEEP")
-    sleep(100000)
 
 
 def parse_cmd_arguments():
