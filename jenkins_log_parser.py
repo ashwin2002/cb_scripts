@@ -214,12 +214,11 @@ def process_test_line(line):
             job_details["tests"].append({"result": "FAIL", "backtrace": ""})
             return
         if test_report_stage > 0:
-            # If error backtrace > 5 KB, then truncate the logs
-            if len(line) > 5000:
-                (job_details["tests"][-1])["backtrace"] += line[:-5000]
+            # If error backtrace > 1 KB, then truncate the logs
+            if len(line) > 500:
+                (job_details["tests"][-1])["backtrace"] += line[:-500]
             else:
                 (job_details["tests"][-1])["backtrace"] += line
-            print((job_details["tests"][-1])["backtrace"])
             if test_report_stage == 1 and line == '-' * 70:
                 test_report_stage = 2
             elif test_report_stage == 2 and line == '-' * 70:
@@ -273,7 +272,14 @@ def record_details(version, j_name, r_num, j_details):
     doc_path = f"runs.{r_num}"
     # To make sure the doc exists
     try:
-        run_analyzer["sdk_client"].get_doc(doc_key)
+        doc = run_analyzer["sdk_client"].get_doc(doc_key).content_as[dict]
+        try:
+            for _, run_details in doc["runs"].items():
+                if int(run_details["job_id"]) == int(j_details["job_id"]):
+                    print(f"{run_details['job_id']} already present")
+                    return
+        except KeyError:
+            pass
     except DocumentNotFoundException:
         run_analyzer["sdk_client"].collection.insert(doc_key, {})
     run_analyzer["sdk_client"].upsert_sub_doc(doc_key, doc_path, j_details,
