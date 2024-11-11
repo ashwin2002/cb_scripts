@@ -90,10 +90,8 @@ def process_install_steps(chunks):
             #     if line_match:
             #         job_details["branch_used"] = line_match[0]
             elif "commit_ref" not in job_details:
-                commit_ref_pattern = \
-                    r"Checking out Revision ([0-9a-zA-Z]+) \(%s\)" \
-                    % job_details["branch_used"]
-                commit_ref_pattern = re.compile(commit_ref_pattern)
+                commit_ref_pattern = re.compile(
+                    r"Checking out Revision ([0-9a-zA-Z]+) \(")
                 line_match = commit_ref_pattern.findall(line)
                 if line_match:
                     job_details["commit_ref"] = line_match[0]
