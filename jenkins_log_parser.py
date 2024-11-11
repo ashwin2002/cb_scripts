@@ -214,8 +214,12 @@ def process_test_line(line):
             job_details["tests"].append({"result": "FAIL", "backtrace": ""})
             return
         if test_report_stage > 0:
-            print(line)
-            (job_details["tests"][-1])["backtrace"] += line
+            # If error backtrace > 5 KB, then truncate the logs
+            if len(line) > 5000:
+                (job_details["tests"][-1])["backtrace"] += line[:-5000]
+            else:
+                (job_details["tests"][-1])["backtrace"] += line
+            print((job_details["tests"][-1])["backtrace"])
             if test_report_stage == 1 and line == '-' * 70:
                 test_report_stage = 2
             elif test_report_stage == 2 and line == '-' * 70:
@@ -422,3 +426,27 @@ if __name__ == '__main__':
                                    str(result[0]).rjust(8, " "),
                                    str(result[1]).rjust(7, " ")))
         print("| %s|%s|%s|" % ("-" * test_desc_len, "-" * 8, "-" * 7))
+
+    """
+    from gensim.models import Word2Vec
+    from sklearn.metrics.pairwise import cosine_similarity
+
+    logs = [
+        "INFO: Script started\nINFO: Processing data",
+        "INFO: Script started\nINFO: Processing data",
+        "INFO: Script started\nINFO: Data processed"
+    ]
+
+    # Tokenize each log string
+    tokenized_logs = [log.split() for log in logs]
+
+    # Train a Word2Vec model
+    model = Word2Vec(tokenized_logs, min_count=1)
+
+    # Represent logs as vectors
+    log_vectors = [model.wv[log] for log in tokenized_logs]
+
+    # Compare similarity
+    cosine_sim = cosine_similarity(log_vectors[0].reshape(1, -1), log_vectors[1].reshape(1, -1))
+    print(cosine_sim)  # Similarity score between two logs
+    """
