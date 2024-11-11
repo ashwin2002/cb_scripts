@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 
+import json
 import os
 import re
 import shutil
@@ -35,7 +36,6 @@ test_case_started = False
 timestamp_pattern = re.compile(r"\d+-\d+-\d+ \d+:\d+:\d+,\d+")
 test_timestamp_pattern = re.compile(r"^([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2},[0-9]+) ")
 test_complete_line_pattern = re.compile(r"Ran 1 test in (\d+\.\d+s)")
-branch_used_pattern = re.compile(r"/usr/bin/git rev-parse ([a-zA-Z0-9_\-/]+)\^{commit}")
 test_num = 0
 test_result = None
 test_report_delimiter = '=' * 70
@@ -83,10 +83,12 @@ def process_install_steps(chunks):
                     r"Building remotely on ([0-9a-zA-Z\-_]+) ").findall(line)
                 if line_match:
                     job_details["executor_name"] = line_match[0]
-            elif "branch_used" not in job_details:
-                line_match = branch_used_pattern.findall(line)
-                if line_match:
-                    job_details["branch_used"] = line_match[0]
+            # elif "branch_used" not in job_details:
+            #     branch_used_pattern = re.compile(
+            #         r"/usr/bin/git rev-parse ([a-zA-Z0-9_\-/]+)\^{commit}")
+            #     line_match = branch_used_pattern.findall(line)
+            #     if line_match:
+            #         job_details["branch_used"] = line_match[0]
             elif "commit_ref" not in job_details:
                 commit_ref_pattern = \
                     r"Checking out Revision ([0-9a-zA-Z]+) \(%s\)" \
@@ -100,12 +102,12 @@ def process_install_steps(chunks):
             #     line_match = commit_msg_pattern.findall(line)
             #     if line_match:
             #         job_details["commit_msg"] = line_match[0]
-            elif "servers" not in job_details:
-                server_info_pattern = re.compile(
-                    r"the given server info is ([\"0-9.,]+)")
-                line_match = server_info_pattern.findall(line)
-                if line_match:
-                    job_details["servers"] = line_match[0].replace("\"", "").split(',')
+            # elif "servers" not in job_details:
+            #     server_info_pattern = re.compile(
+            #         r"the given server info is ([\"0-9.,]+)")
+            #     line_match = server_info_pattern.findall(line)
+            #     if line_match:
+            #         job_details["servers"] = line_match[0].replace("\"", "").split(',')
 
             desc_log = desc_set_log.match(line)
             if "python3 scripts/new_install.py" in line:
@@ -369,7 +371,16 @@ if __name__ == '__main__':
         print(section_delimitter)
         print("Job::%s, Total runs: %s" % (job_name, len(runs)))
         print(section_delimitter)
+        job_info_json_url = None
         for run_num, run in enumerate(runs[::-1]):
+            # Params to read from job's jenkins parameters
+            component = None
+            subcomponent = None
+            cb_version = None
+            servers = None
+            branch = None
+            slave_label = None
+
             test_num = 0
             is_best_run = ""
             if arguments.url:
@@ -378,9 +389,11 @@ if __name__ == '__main__':
                 jenkins_job = (run["url"].strip("/")).split('/')[-1]
                 if jenkins_job in ["test_suite_executor-TAF",
                                    "test_suite_executor"]:
-                    url = "%s/%s/jenkins_logs/%s/%s/consoleText.txt" \
-                          % (s3_url, arguments.version, jenkins_job,
-                             run["build_id"])
+                    job_url = "%s/%s/jenkins_logs/%s/%s" \
+                              % (s3_url, arguments.version, jenkins_job,
+                                 run["build_id"])
+                    url = f"{job_url}/consoleText.txt"
+                    job_info_json_url = f"{job_url}/jobinfo.json"
                 else:
                     continue
             else:
@@ -388,9 +401,11 @@ if __name__ == '__main__':
                     jenkins_job = "test_suite_executor-TAF"
                 elif arguments.repo == "testrunner":
                     jenkins_job = "test_suite_executor"
-                url = "%s/%s/jenkins_logs/%s/%s/consoleText.txt" \
-                      % (s3_url, arguments.version, jenkins_job,
-                         run["build_id"])
+                job_url = "%s/%s/jenkins_logs/%s/%s" \
+                          % (s3_url, arguments.version, jenkins_job,
+                             run["build_id"])
+                url = f"{job_url}/consoleText.txt"
+                job_info_json_url = f"{job_url}/jobinfo.json"
             if not run["olderBuild"]:
                 is_best_run = " (Best run)"
                 result_tbl[run["displayName"]] = [run["failCount"],
@@ -398,9 +413,36 @@ if __name__ == '__main__':
             if arguments.check_only_best_run and not is_best_run:
                 continue
 
+            if job_info_json_url:
+                job_info = json.loads(requests.get(job_info_json_url).text)
+                for action in job_info["actions"]:
+                    if "_class" in action \
+                            and action["_class"] == "hudson.model.ParametersAction":
+                        for parameter in action["parameters"]:
+                            if parameter["name"] == "version_number":
+                                cb_version = parameter["value"]
+                            elif parameter["name"] == "servers":
+                                servers = parameter["value"].replace("\"", "")
+                                servers = servers.split(",")
+                            elif parameter["name"] == "component":
+                                component = parameter["value"]
+                            elif parameter["name"] == "subcomponent":
+                                subcomponent = parameter["value"]
+                            elif parameter["name"] == "branch":
+                                branch = parameter["value"]
+                            elif parameter["name"] == "slave":
+                                slave_label = parameter["value"]
+
             print("Parsing URL: %s %s" % (url, is_best_run))
-            job_details = {"run_note": None, "job_id": run["build_id"],
-                           "version": arguments.version, "tests": []}
+            job_details = {"component": component,
+                           "subcomponent": subcomponent,
+                           "servers": servers,
+                           "cb_version": cb_version,
+                           "branch": branch,
+                           "slave_label": slave_label,
+                           "run_note": None,
+                           "job_id": run["build_id"],
+                           "tests": list()}
             try:
                 stream_and_process(url)
             except Exception as e:
