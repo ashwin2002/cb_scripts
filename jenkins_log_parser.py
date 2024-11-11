@@ -395,7 +395,7 @@ if __name__ == '__main__':
                 stream_and_process(url)
             except Exception as e:
                 print(e)
-            if arguments.skip_store_results_to_analyzer and job_name != "dummy":
+            if not arguments.skip_store_results_to_analyzer and job_name != "dummy":
                 record_details(arguments.version, job_name, run_num+1,
                                job_details)
             else:
