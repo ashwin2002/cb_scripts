@@ -3,6 +3,8 @@
 import os
 import re
 import shutil
+from pprint import pprint
+
 import requests
 import sys
 import tempfile
@@ -301,6 +303,10 @@ def parse_cmd_arguments():
                         help="Repo using which the logs are generated",
                         choices=["TAF"])
 
+    parser.add_argument("--skip_store_results_to_analyzer",
+                        dest="skip_store_results_to_analyzer", default=False,
+                        action="store_true",
+                        help="Don't save job_details into db for further insights")
     parser.add_argument("--dont_save", dest="dont_save_content", default=False,
                         action="store_true",
                         help="Won't save the content locally after parsing")
@@ -337,13 +343,14 @@ if __name__ == '__main__':
     else:
         print_and_exit("Exiting: Pass --build_num")
 
-    run_analyzer["sdk_client"] = SDKClient(
-        run_analyzer["host"],
-        run_analyzer["username"],
-        run_analyzer["password"],
-        run_analyzer["bucket_name"])
-    run_analyzer["sdk_client"].select_collection(
-        run_analyzer["scope"], run_analyzer["collection"])
+    if arguments.skip_store_results_to_analyzer:
+        run_analyzer["sdk_client"] = SDKClient(
+            run_analyzer["host"],
+            run_analyzer["username"],
+            run_analyzer["password"],
+            run_analyzer["bucket_name"])
+        run_analyzer["sdk_client"].select_collection(
+            run_analyzer["scope"], run_analyzer["collection"])
     delete_tmp_file_flag = True if arguments.dont_save_content else False
     tmp_file = tempfile.NamedTemporaryFile(dir="/tmp",
                                            delete=delete_tmp_file_flag)
@@ -388,9 +395,11 @@ if __name__ == '__main__':
                 stream_and_process(url)
             except Exception as e:
                 print(e)
-            if job_name != "dummy":
+            if arguments.skip_store_results_to_analyzer and job_name != "dummy":
                 record_details(arguments.version, job_name, run_num+1,
                                job_details)
+            else:
+                pprint(job_details)
             if not arguments.dont_save_content:
                 user_input = input("Do you want to save this log ? [y/n]: ")
                 tmp_file.close()
