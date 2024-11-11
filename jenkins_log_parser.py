@@ -321,7 +321,7 @@ def parse_cmd_arguments():
                         action="store_true",
                         help="Won't save the content locally after parsing")
     parser.add_argument("--only_best_run", dest="check_only_best_run",
-                        default=True, action="store_true",
+                        default=False, action="store_true",
                         help="Parse only best run logs and discard other "
                              "other runs for the sub-component")
     return parser.parse_args(sys.argv[1:])
@@ -400,7 +400,7 @@ if __name__ == '__main__':
 
             print("Parsing URL: %s %s" % (url, is_best_run))
             job_details = {"run_note": None, "job_id": run["build_id"],
-                           "tests": []}
+                           "version": arguments.version, "tests": []}
             try:
                 stream_and_process(url)
             except Exception as e:
