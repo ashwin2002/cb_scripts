@@ -305,6 +305,8 @@ def parse_cmd_arguments():
                         help="Version on which the job has run")
     parser.add_argument("-b", "--build_num", dest="build_num", default=None,
                         help="Build number of jenkins run")
+    parser.add_argument("--job_name", dest="job_name", default="dummy",
+                        help="Name given in the Greenboard subdoc. If 'dummy' don't save")
 
     parser.add_argument("--url", dest="url", default=None,
                         help="Use this URL to parse the logs directly")
@@ -337,12 +339,12 @@ if __name__ == '__main__':
 
     jobs = None
     jenkins_job = None
-    job_name = "dummy"
 
     if arguments.build_num:
-        jobs = {"dummy": [{"displayName": "temp", "olderBuild": False,
-                           "failCount": "NA", "totalCount": "NA",
-                           "build_id": arguments.build_num}]}
+        jobs = {arguments.job_name: [
+            {"displayName": "temp", "olderBuild": False,
+             "failCount": "NA", "totalCount": "NA",
+             "build_id": arguments.build_num}]}
     elif arguments.gb_ip and arguments.gb_bucket \
             and arguments.os_type and arguments.component:
         jobs = fetch_jobs_for_component(
@@ -439,13 +441,13 @@ if __name__ == '__main__':
                            "branch": branch,
                            "slave_label": slave_label,
                            "run_note": None,
-                           "job_id": run["build_id"],
+                           "job_id": int(run["build_id"]),
                            "tests": list()}
             try:
                 stream_and_process(url)
             except Exception as e:
                 print(e)
-            if arguments.store_results_to_analyzer:
+            if arguments.store_results_to_analyzer and job_name != "dummy":
                 result = set([t_test["result"] for t_test in job_details["tests"]])
                 if len(result) == 1 and result.pop() == "PASS":
                     job_details["run_note"] = "PASS"
@@ -464,17 +466,16 @@ if __name__ == '__main__':
         print("End of job: %s" % job_name)
         print("")
 
-    if job_name != "dummy":
-        test_desc_len = 80
-        print("| %s|%s|%s|" % ("-" * test_desc_len, "-" * 8, "-" * 7))
-        print("| %s|%s|%s|" % ("Description".ljust(test_desc_len, "."),
-                               " Failed ", " Total "))
-        print("| %s|%s|%s|" % ("-" * test_desc_len, "-" * 8, "-" * 7))
-        for job_name, result in result_tbl.items():
-            print("| %s %s %s " % (job_name.ljust(test_desc_len, "."),
-                                   str(result[0]).rjust(8, " "),
-                                   str(result[1]).rjust(7, " ")))
-        print("| %s|%s|%s|" % ("-" * test_desc_len, "-" * 8, "-" * 7))
+    test_desc_len = 80
+    print("| %s|%s|%s|" % ("-" * test_desc_len, "-" * 8, "-" * 7))
+    print("| %s|%s|%s|" % ("Description".ljust(test_desc_len, "."),
+                           " Failed ", " Total "))
+    print("| %s|%s|%s|" % ("-" * test_desc_len, "-" * 8, "-" * 7))
+    for job_name, result in result_tbl.items():
+        print("| %s %s %s " % (job_name.ljust(test_desc_len, "."),
+                               str(result[0]).rjust(8, " "),
+                               str(result[1]).rjust(7, " ")))
+    print("| %s|%s|%s|" % ("-" * test_desc_len, "-" * 8, "-" * 7))
 
     """
     from gensim.models import Word2Vec
