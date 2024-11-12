@@ -16,18 +16,9 @@ from couchbase.exceptions import DocumentNotFoundException
 from couchbase.options import LookupInOptions
 import couchbase.subdocument as subdoc
 
+from config.run_analyzer import run_analyzer_db_info as run_analyzer
 from sdk_lib.sdk_conn import SDKClient
 
-run_analyzer = {
-    "host": "172.23.104.162",
-    "username": "Administrator",
-    "password": "esabhcuoc",
-    "bucket_name": "gb_cases",
-    "scope": "_default",
-    "collection": "run_analysis",
-    "sdk_client": None,
-    "sdk_collection": None,
-}
 
 datetime_format = "%Y-%m-%d %H:%M:%S.%f"
 daemon_killed = False
@@ -437,24 +428,28 @@ if __name__ == '__main__':
                 continue
 
             if job_info_json_url:
-                job_info = json.loads(requests.get(job_info_json_url).text)
-                for action in job_info["actions"]:
-                    if "_class" in action \
-                            and action["_class"] == "hudson.model.ParametersAction":
-                        for parameter in action["parameters"]:
-                            if parameter["name"] == "version_number":
-                                cb_version = parameter["value"]
-                            elif parameter["name"] == "servers":
-                                servers = parameter["value"].replace("\"", "")
-                                servers = servers.split(",")
-                            elif parameter["name"] == "component":
-                                component = parameter["value"]
-                            elif parameter["name"] == "subcomponent":
-                                subcomponent = parameter["value"]
-                            elif parameter["name"] == "branch":
-                                branch = parameter["value"]
-                            elif parameter["name"] == "slave":
-                                slave_label = parameter["value"]
+                resp_txt = requests.get(job_info_json_url).text
+                try:
+                    job_info = json.loads(requests.get(job_info_json_url).text)
+                    for action in job_info["actions"]:
+                        if "_class" in action \
+                                and action["_class"] == "hudson.model.ParametersAction":
+                            for parameter in action["parameters"]:
+                                if parameter["name"] == "version_number":
+                                    cb_version = parameter["value"]
+                                elif parameter["name"] == "servers":
+                                    servers = parameter["value"].replace("\"", "")
+                                    servers = servers.split(",")
+                                elif parameter["name"] == "component":
+                                    component = parameter["value"]
+                                elif parameter["name"] == "subcomponent":
+                                    subcomponent = parameter["value"]
+                                elif parameter["name"] == "branch":
+                                    branch = parameter["value"]
+                                elif parameter["name"] == "slave":
+                                    slave_label = parameter["value"]
+                except json.decoder.JSONDecodeError:
+                    pass
 
             print("Parsing URL: %s %s" % (url, is_best_run))
             job_details = {"component": component,
@@ -498,27 +493,3 @@ if __name__ == '__main__':
                                str(result[0]).rjust(8, " "),
                                str(result[1]).rjust(7, " ")))
     print("| %s|%s|%s|" % ("-" * test_desc_len, "-" * 8, "-" * 7))
-
-    """
-    from gensim.models import Word2Vec
-    from sklearn.metrics.pairwise import cosine_similarity
-
-    logs = [
-        "INFO: Script started\nINFO: Processing data",
-        "INFO: Script started\nINFO: Processing data",
-        "INFO: Script started\nINFO: Data processed"
-    ]
-
-    # Tokenize each log string
-    tokenized_logs = [log.split() for log in logs]
-
-    # Train a Word2Vec model
-    model = Word2Vec(tokenized_logs, min_count=1)
-
-    # Represent logs as vectors
-    log_vectors = [model.wv[log] for log in tokenized_logs]
-
-    # Compare similarity
-    cosine_sim = cosine_similarity(log_vectors[0].reshape(1, -1), log_vectors[1].reshape(1, -1))
-    print(cosine_sim)  # Similarity score between two logs
-    """
