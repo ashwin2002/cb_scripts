@@ -266,24 +266,47 @@ def fetch_jobs_for_component(server_ip, username, password, bucket_name,
     return run_data.content_as[dict](0)
 
 
-def record_details(version, j_name, r_num, j_details):
+def record_details(version, j_name, j_details):
     global run_analyzer
     doc_key = f"{version}_{j_name}"
-    doc_path = f"runs.{r_num}"
+    # Sanitise the values
+    j_details["job_id"] = int(j_details["job_id"])
+
     # To make sure the doc exists
     try:
         doc = run_analyzer["sdk_client"].get_doc(doc_key).content_as[dict]
-        try:
-            for _, run_details in doc["runs"].items():
-                if int(run_details["job_id"]) == int(j_details["job_id"]):
-                    print(f"{run_details['job_id']} already present")
-                    return
-        except KeyError:
-            pass
     except DocumentNotFoundException:
-        run_analyzer["sdk_client"].collection.insert(doc_key, {})
-    run_analyzer["sdk_client"].upsert_sub_doc(doc_key, doc_path, j_details,
-                                              create_parents=True)
+        doc = {"cb_version": j_details["cb_version"],
+               "component": j_details["component"],
+               "subcomponent": j_details["subcomponent"],
+               "runs": list()}
+        run_analyzer["sdk_client"].collection.insert(doc_key, doc)
+
+    # Remove redundant data from the sub-doc
+    j_details.pop("component", None)
+    j_details.pop("subcomponent", None)
+
+    # Parse doc["runs"] list & insert the job in desc order (Last run first)
+    try:
+        index_with_least_job_id = -1
+        for index, run_details in enumerate(doc["runs"]):
+            run_details["job_id"] = int(run_details["job_id"])
+            if run_details["job_id"] == j_details["job_id"]:
+                print(f"{run_details['job_id']} already present")
+                return
+            elif j_details["job_id"] > run_details["job_id"]:
+                index_with_least_job_id = index
+                break
+        if index_with_least_job_id != -1:
+            doc["runs"].insert(index_with_least_job_id, j_details)
+        else:
+            # This is the first run getting recorded
+            doc["runs"].append(j_details)
+    except KeyError:
+        pass
+
+    run_analyzer["sdk_client"].upsert_sub_doc(
+        doc_key, "runs", doc["runs"], create_parents=True)
 
 
 def parse_cmd_arguments():
@@ -372,7 +395,7 @@ if __name__ == '__main__':
         print("Job::%s, Total runs: %s" % (job_name, len(runs)))
         print(section_delimitter)
         job_info_json_url = None
-        for run_num, run in enumerate(runs[::-1]):
+        for run in runs[::-1]:
             # Params to read from job's jenkins parameters
             component = None
             subcomponent = None
@@ -451,8 +474,7 @@ if __name__ == '__main__':
                 result = set([t_test["result"] for t_test in job_details["tests"]])
                 if len(result) == 1 and result.pop() == "PASS":
                     job_details["run_note"] = "PASS"
-                record_details(arguments.version, job_name, run_num+1,
-                               job_details)
+                record_details(arguments.version, job_name, job_details)
             else:
                 pprint(job_details)
             if not arguments.dont_save_content:
