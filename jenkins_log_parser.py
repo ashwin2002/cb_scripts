@@ -313,8 +313,8 @@ def parse_cmd_arguments():
                         help="Repo using which the logs are generated",
                         choices=["TAF"])
 
-    parser.add_argument("--skip_store_results_to_analyzer",
-                        dest="skip_store_results_to_analyzer", default=False,
+    parser.add_argument("--store_results_to_analyzer",
+                        dest="store_results_to_analyzer", default=False,
                         action="store_true",
                         help="Don't save job_details into db for further insights")
     parser.add_argument("--dont_save", dest="dont_save_content", default=False,
@@ -353,7 +353,7 @@ if __name__ == '__main__':
     else:
         print_and_exit("Exiting: Pass --build_num")
 
-    if not arguments.skip_store_results_to_analyzer:
+    if arguments.store_results_to_analyzer:
         run_analyzer["sdk_client"] = SDKClient(
             run_analyzer["host"],
             run_analyzer["username"],
@@ -445,7 +445,10 @@ if __name__ == '__main__':
                 stream_and_process(url)
             except Exception as e:
                 print(e)
-            if not arguments.skip_store_results_to_analyzer and job_name != "dummy":
+            if arguments.store_results_to_analyzer:
+                result = set([t_test["result"] for t_test in job_details["tests"]])
+                if len(result) == 1 and result.pop() == "PASS":
+                    job_details["run_note"] = "PASS"
                 record_details(arguments.version, job_name, run_num+1,
                                job_details)
             else:
