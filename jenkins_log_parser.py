@@ -258,46 +258,51 @@ def fetch_jobs_for_component(server_ip, username, password, bucket_name,
 
 
 def record_details(version, j_name, j_details):
-    global run_analyzer
     doc_key = f"{version}_{j_name}"
-    # Sanitise the values
-    j_details["job_id"] = int(j_details["job_id"])
+    # Remove redundant data from the sub-doc
+    j_details.pop("component", None)
+    j_details.pop("subcomponent", None)
 
-    # To make sure the doc exists
+    # doc_key always exists since we have called check_if_job_already_parsed()
+    # where the doc is created if not exists
+    doc = run_analyzer["sdk_client"].get_doc(doc_key).content_as[dict]
+
+    # Parse doc["runs"] list & insert the job in desc order (Last run first)
+    index_with_least_job_id = -1
+    for index, run_details in enumerate(doc["runs"]):
+        run_details["job_id"] = int(run_details["job_id"])
+        if j_details["job_id"] > run_details["job_id"]:
+            index_with_least_job_id = index
+            break
+    if index_with_least_job_id != -1:
+        doc["runs"].insert(index_with_least_job_id, j_details)
+    else:
+        # This is the first run getting recorded
+        doc["runs"].append(j_details)
+
+    run_analyzer["sdk_client"].upsert_sub_doc(
+        doc_key, "runs", doc["runs"], create_parents=True)
+
+
+def check_if_job_already_parsed(version, j_name, j_details):
+    doc_key = f"{version}_{j_name}"
+
+    # To make sure the doc exists and create if not present
     try:
         doc = run_analyzer["sdk_client"].get_doc(doc_key).content_as[dict]
+        # Parse doc["runs"] list to check if job_id already exists
+        for index, run_details in enumerate(doc["runs"]):
+            run_details["job_id"] = int(run_details["job_id"])
+            if run_details["job_id"] == j_details["job_id"]:
+                print(f"Job {run_details['job_id']} already parsed!")
+                return True
     except DocumentNotFoundException:
         doc = {"cb_version": j_details["cb_version"],
                "component": j_details["component"],
                "subcomponent": j_details["subcomponent"],
                "runs": list()}
         run_analyzer["sdk_client"].collection.insert(doc_key, doc)
-
-    # Remove redundant data from the sub-doc
-    j_details.pop("component", None)
-    j_details.pop("subcomponent", None)
-
-    # Parse doc["runs"] list & insert the job in desc order (Last run first)
-    try:
-        index_with_least_job_id = -1
-        for index, run_details in enumerate(doc["runs"]):
-            run_details["job_id"] = int(run_details["job_id"])
-            if run_details["job_id"] == j_details["job_id"]:
-                print(f"{run_details['job_id']} already present")
-                return
-            elif j_details["job_id"] > run_details["job_id"]:
-                index_with_least_job_id = index
-                break
-        if index_with_least_job_id != -1:
-            doc["runs"].insert(index_with_least_job_id, j_details)
-        else:
-            # This is the first run getting recorded
-            doc["runs"].append(j_details)
-    except KeyError:
-        pass
-
-    run_analyzer["sdk_client"].upsert_sub_doc(
-        doc_key, "runs", doc["runs"], create_parents=True)
+    return False
 
 
 def parse_cmd_arguments():
@@ -451,7 +456,6 @@ if __name__ == '__main__':
                 except json.decoder.JSONDecodeError:
                     pass
 
-            print("Parsing URL: %s %s" % (url, is_best_run))
             job_details = {"component": component,
                            "subcomponent": subcomponent,
                            "servers": servers,
@@ -461,10 +465,21 @@ if __name__ == '__main__':
                            "run_note": None,
                            "job_id": int(run["build_id"]),
                            "tests": list()}
+
+            # Check if the same build has already parsed by us
+            if arguments.store_results_to_analyzer \
+                    and job_name != "dummy" \
+                    and check_if_job_already_parsed(arguments.version,
+                                                    job_name,
+                                                    job_details):
+                continue
+
+            print("Parsing URL: %s %s" % (url, is_best_run))
             try:
                 stream_and_process(url)
             except Exception as e:
                 print(e)
+
             if arguments.store_results_to_analyzer and job_name != "dummy":
                 result = set([t_test["result"] for t_test in job_details["tests"]])
                 if len(result) == 1 and result.pop() == "PASS":
