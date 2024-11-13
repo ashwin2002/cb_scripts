@@ -99,7 +99,9 @@ def process_install_steps(chunks):
             #         job_details["servers"] = line_match[0].replace("\"", "").split(',')
 
             desc_log = desc_set_log.match(line)
-            if "python3 scripts/new_install.py" in line:
+            if "Starting server installation" in line \
+                    or " scripts/new_install.py " in line \
+                    or "Trying to check is this url alive" in line:
                 install_block = True
             elif "TOTAL INSTALL TIME" in line:
                 install_logs += line + "\n"
