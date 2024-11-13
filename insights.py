@@ -18,7 +18,7 @@ def parse_command_line_arguments():
     parser = ArgumentParser(description="Paser for test logs")
     parser.add_argument("--component", dest="component", required=True,
                         help="Target component for which to parse the jobs")
-    parser.add_argument("-v", "--version", dest="version", required=True,
+    parser.add_argument("--version", dest="version", required=True,
                         help="Version on which the job has run")
     parser.add_argument("--job_name", dest="job_name", default=None,
                         help="Target one job to analyze")
@@ -41,14 +41,7 @@ def get_backtrace_embedding(backtrace):
     return embedding
 
 
-class arguments:
-    # version = "7.6.4-5114"
-    version = "8.0.0-1999"
-    component = "durability"
-    parse_last_run_only = True
-
-
-# arguments = parse_command_line_arguments()
+arguments = parse_command_line_arguments()
 run_analyzer["sdk_client"] = SDKClient(
     run_analyzer["host"],
     run_analyzer["username"],
@@ -136,7 +129,7 @@ for run in data:
         try:
             error_db_info["sdk_client"].collection.get(vector_hash)
         except DocumentNotFoundException:
-            doc = {"vector":err_vector_pylist, "vector_hash": vector_hash,
+            doc = {"vector": err_vector_pylist, "vector_hash": vector_hash,
                    "failure_history": list()}
             error_db_info["sdk_client"].collection.insert(vector_hash, doc)
 
