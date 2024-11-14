@@ -207,15 +207,15 @@ def process_test_line(line):
             job_details["tests"].append({"result": "FAIL", "backtrace": ""})
             return
         if test_report_stage > 0:
-            # If error backtrace > 1 KB, then truncate the logs
-            if len(line) > 500:
-                (job_details["tests"][-1])["backtrace"] += line[:-500]
-            else:
-                (job_details["tests"][-1])["backtrace"] += line
+            (job_details["tests"][-1])["backtrace"] += line
             if test_report_stage == 1 and line == '-' * 70:
                 test_report_stage = 2
             elif test_report_stage == 2 and line == '-' * 70:
                 test_report_stage = 0
+                # If error backtrace > 1 KB, then truncate the logs
+                if len((job_details["tests"][-1])["backtrace"]) > 1000:
+                    job_details["tests"][-1]["backtrace"] = \
+                        job_details["tests"][-1]["backtrace"][-1000:]
                 return
 
 
