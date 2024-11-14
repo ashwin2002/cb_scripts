@@ -207,7 +207,8 @@ def process_test_line(line):
             job_details["tests"].append({"result": "FAIL", "backtrace": ""})
             return
         if test_report_stage > 0:
-            (job_details["tests"][-1])["backtrace"] += line
+            if line.replace("-", "") != "":
+                (job_details["tests"][-1])["backtrace"] += line + "\n"
             if test_report_stage == 1 and line == '-' * 70:
                 test_report_stage = 2
             elif test_report_stage == 2 and line == '-' * 70:
@@ -457,6 +458,10 @@ if __name__ == '__main__':
                                     slave_label = parameter["value"]
                 except json.decoder.JSONDecodeError:
                     pass
+
+            if all([component, subcomponent, cb_version, ]):
+                # Skip recording if component/subcomponent is unknown
+                continue
 
             job_details = {"component": component,
                            "subcomponent": subcomponent,
