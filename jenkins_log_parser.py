@@ -459,7 +459,7 @@ if __name__ == '__main__':
                 except json.decoder.JSONDecodeError:
                     pass
 
-            if all([component, subcomponent, cb_version, ]):
+            if not all([component, subcomponent, cb_version]):
                 # Skip recording if component/subcomponent is unknown
                 continue
 
