@@ -58,7 +58,6 @@ def parse_tcs(sdk_conn, cb_version, job_run_id, jenkins_build_num, xml_text):
             case_str = case_str.split(",")
             tc = case_str[0]
             params = dict()
-            print(case_str)
             for param in case_str[1:]:
                 key, value = param.split('=')
                 if key in ['GROUP', 'ini', 'total_testcases',
@@ -101,8 +100,9 @@ def parse_tcs(sdk_conn, cb_version, job_run_id, jenkins_build_num, xml_text):
                 if list(t_run.keys())[0] == jenkins_build_num:
                     break
             else:
-                doc[cb_build_num].append(
-                    {jenkins_build_num: parsed_case["status"]})
+                status = "SKIPPED" if "skipped" in parsed_case \
+                    else parsed_case["status"]
+                doc[cb_build_num].append({jenkins_build_num: status})
                 sdk_conn.upsert_sub_doc(tc_hash, f"runs.`{cb_release}`", doc)
 
 
