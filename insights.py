@@ -27,6 +27,8 @@ def parse_command_line_arguments(custom_args=None):
     parser.add_argument("--parse_last_run_only", dest="parse_last_run_only",
                         default=False, action="store_true",
                         help="Runs the script only on the last run of each subcomponent")
+    parser.add_argument("--rerun_failed_install", action="store_true",
+                        help="If set, will rerun all failed install run")
     return parser.parse_args(custom_args or sys.argv[1:])
 
 
@@ -41,6 +43,34 @@ def get_backtrace_embedding(backtrace):
     # Use the [CLS] token's embedding as the representation of the backtrace
     embedding = outputs.last_hidden_state[:, 0, :].squeeze().numpy()
     return embedding
+
+
+def get_rerun_jobs_for_failed_runs(t_install_failed_jobs):
+    """
+    :param t_install_failed_jobs: List of list of failed jobs data
+    :return rerun_dict: Format:
+      {
+        {"component_1": {
+            {"sub_comp_1": 8281},
+            {"sub_comp_2": 9281}}
+        {"component_1": {
+            {"sub_comp_1": 8241},
+            {"sub_comp_2": 5281}}}
+      }
+    """
+    rerun_dict = dict()
+    for t_failed_job in t_install_failed_jobs:
+        component = t_failed_job[0]
+        subcomponent = t_failed_job[1]
+        jenkins_job_id = t_failed_job[8]
+        if component not in rerun_dict():
+            rerun_dict[component] = dict()
+        rerun_dict[component][subcomponent] = int(jenkins_job_id)
+    return rerun_dict
+
+
+def trigger_rerun(rerun_dict):
+    pass
 
 
 arguments = parse_command_line_arguments()
@@ -78,15 +108,18 @@ other_warnings = list()
 for row in rows:
     if arguments.parse_last_run_only:
         run = row["run_analysis"]["runs"][0]
-        if "commit_ref" not in run:
-            continue
         if run["run_note"] != "PASS":
             data.append([
-               row["run_analysis"]["component"],
-               row["run_analysis"]["subcomponent"],
-               run["branch"], run["commit_ref"],
-               run["slave_label"], run["executor_name"],
-               run["servers"], run["run_note"], run["job_id"], run["tests"]
+                row["run_analysis"]["component"],       # 0
+                row["run_analysis"]["subcomponent"],    # 1
+                run.get("branch", "NA"),                # 2
+                run.get("commit_ref", "NA"),            # 3
+                run.get("slave_label", "NA"),           # 4
+                run.get("executor_name", "NA"),         # 5
+                run.get("servers", "NA"),               # 6
+                run.get("run_note", "install_failed"),  # 7
+                run.get("job_id", "NA"),                # 8
+                run.get("tests", []),                   # 9
             ])
     else:
         runs = row["run_analysis"]["runs"]
@@ -189,8 +222,7 @@ for run in data:
                     vector_hash, "failure_history", failure_history)
 
 print("*" * 100)
-print("    End of Analysis")
-print("*" * 100)
+print(" " * 20 + "End of Analysis")
 
 if install_failed_jobs:
     print("*" * 100)
@@ -223,3 +255,7 @@ if other_warnings:
     print("!!! Warnings !!!")
     for warning_str in other_warnings:
         print(warning_str)
+
+if arguments.rerun_failed_install:
+    rerun_jobs = get_rerun_jobs_for_failed_runs(install_failed_jobs)
+    trigger_rerun(rerun_jobs)
