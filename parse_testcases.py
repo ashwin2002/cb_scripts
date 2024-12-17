@@ -65,7 +65,8 @@ def parse_tcs(sdk_conn, cb_version, job_run_id, jenkins_build_num, xml_text):
                            'log_level', 'infra_log_level',
                            'logs_folder', 'last_case_fail',
                            'cluster_name', 'upgrade_version',
-                           'num_nodes', 'get-cbcollect-info', 'sirius_url']:
+                           'num_nodes', 'get-cbcollect-info', 'sirius_url',
+                           'load_docs_using']:
                     continue
                 params[key] = value
             params = OrderedDict(sorted(params.items()))

@@ -124,10 +124,11 @@ def process_install_steps(chunks):
 
         if install_complete:
             break
+    install_logs = install_logs.strip()
     ts_occurances = timestamp_pattern.findall(install_logs)
     install_failed_ips = install_failed_pattern.findall(install_logs)
     install_not_started_ips = install_not_started_pattern.findall(install_logs)
-    if install_failed_ips or install_not_started_ips:
+    if install_logs == "" or install_failed_ips or install_not_started_ips:
         job_details["run_note"] = "install_failed"
     print("-" * 70)
     print("Install summary:")
