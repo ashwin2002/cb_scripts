@@ -56,6 +56,7 @@ elif arguments.subcomponent:
                 f" AND subcomponent LIKE '%{arguments.subcomponent}%'"
 else:
     parse_command_line_arguments(["--help"])
+    exit(1)
 
 run_analyzer["sdk_client"] = SDKClient(
     run_analyzer["host"],
@@ -68,6 +69,12 @@ run_analyzer["sdk_client"].select_collection(
 rows = run_analyzer["sdk_client"].cluster.query(query_str)
 
 data = list()
+error_data = dict()
+backtraces_hash_map = dict()
+install_failed_jobs = list()
+subcomponents_to_rerun = set()
+other_warnings = list()
+
 for row in rows:
     if arguments.parse_last_run_only:
         run = row["run_analysis"]["runs"][0]
@@ -85,18 +92,24 @@ for row in rows:
         runs = row["run_analysis"]["runs"]
         subcomponent_jobs = list()
         test_passed = False
-        for run in runs:
-            if "commit_ref" not in run:
-                continue
+        for r_index, run in enumerate(runs):
             data_entry = [
-                row["run_analysis"]["component"],
-                row["run_analysis"]["subcomponent"],
-                run["branch"], run["commit_ref"],
-                run["slave_label"], run["executor_name"],
-                run["servers"], run["run_note"], run["job_id"], run["tests"]
+                row["run_analysis"]["component"],       # 0
+                row["run_analysis"]["subcomponent"],    # 1
+                run.get("branch", "NA"),                # 2
+                run.get("commit_ref", "NA"),            # 3
+                run.get("slave_label", "NA"),           # 4
+                run.get("executor_name", "NA"),         # 5
+                run.get("servers", "NA"),               # 6
+                run.get("run_note", "install_failed"),  # 7
+                run.get("job_id", "NA"),                # 8
+                run.get("tests", []),                   # 9
             ]
-            if run["run_note"] == "PASS":
+            # If run_note == "PASS", we can break without validating other runs
+            if data_entry[7] == "PASS":
                 test_passed = True
+                if r_index != 0:
+                    other_warnings.append(f"WARNING!! {data_entry[0]}::{data_entry[1]} has rerun after job passed")
                 break
             subcomponent_jobs.append(data_entry)
 
@@ -122,19 +135,17 @@ error_db_info["sdk_client"] = SDKClient(
 error_db_info["sdk_client"].select_collection(
     error_db_info["scope"], error_db_info["collection"])
 
-error_data = dict()
-backtraces_hash_map = dict()
-
 query_str = \
     f"SELECT * FROM " \
     f"`{error_db_info['bucket_name']}`.`{error_db_info['scope']}`.`{error_db_info['collection']}`" \
     f" WHERE vector_hash='%s'"
-install_failed_jobs = list()
+
 for run in data:
+    if run[7] == "install_failed":
+        install_failed_jobs.append(run)
+        continue
+    # run[9] is the list the individual tests run in the given run
     for test_num, test in enumerate(run[9]):
-        if run[8] == "installed_failed":
-            install_failed_jobs.append(run[1])
-            continue
         if 'backtrace' not in test:
             continue
         err_vector = get_backtrace_embedding(test["backtrace"])
@@ -162,7 +173,7 @@ for run in data:
                 continue
             for failed_hist in row["failure_history"]:
                 if failed_hist["component"] == arguments.component \
-                        and failed_hist["subcomponent"] == run[0] \
+                        and failed_hist["subcomponent"] == run[1] \
                         and failed_hist["cb_version"] == arguments.version \
                         and failed_hist["test_num"] == test_num+1:
                     break
@@ -170,7 +181,7 @@ for run in data:
                 # Given error not present in the known error history
                 failure_history = row["failure_history"]
                 failure_history.append({"component": arguments.component,
-                                        "subcomponent": run[0],
+                                        "subcomponent": run[1],
                                         "cb_version": arguments.version,
                                         "test_num": test_num+1,
                                         "job_id": run[8]})
@@ -178,20 +189,37 @@ for run in data:
                     vector_hash, "failure_history", failure_history)
 
 print("*" * 100)
-print("Install failed jobs: ")
-pprint(install_failed_jobs)
+print("    End of Analysis")
 print("*" * 100)
+
+if install_failed_jobs:
+    print("*" * 100)
+    print("Install failed jobs: ")
+    pprint(install_failed_jobs)
+    print("*" * 100)
 
 print()
 
-print("*" * 100)
-print("Other error insights: ")
-pprint(error_data)
-for hash_val, failed_jobs in error_data.items():
-    print("::::: Back Trace ::::::")
-    print(backtraces_hash_map[hash_val].split("\n"))
-    print("Jobs / Tests failing")
-    print(failed_jobs)
-    print("-" * 100)
-    print()
-print("*" * 100)
+if error_data:
+    print("*" * 100)
+    print("Other error insights: ")
+    pprint(error_data)
+    for hash_val, failed_jobs in error_data.items():
+        print("::::: Back Trace ::::::")
+        print(backtraces_hash_map[hash_val])
+        print("Jobs / Tests failing")
+        print(failed_jobs)
+        for failed_job in failed_jobs:
+            subcomponents_to_rerun.add(failed_job["subcomponent"])
+        print("-" * 100)
+        print()
+    print("*" * 100)
+
+if subcomponents_to_rerun:
+    print("Rerun:")
+    print(','.join(subcomponents_to_rerun))
+
+if other_warnings:
+    print("!!! Warnings !!!")
+    for warning_str in other_warnings:
+        print(warning_str)
