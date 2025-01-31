@@ -8,9 +8,10 @@ help() {
     echo "   del_all_buckets"
     echo "   reb_out_all_nodes"
     echo "   rebalance"
+    echo "   hardReset"
+    echo "   initCluster"
     exit 0
 }
-echo $#
 
 if [ $# -lt 2 ]; then
     help
@@ -78,6 +79,14 @@ case "$command" in
     nodes=$(echo $nodes | sed 's/ /,/g')
     ${curl_cmd}/controller/rebalance -X POST -d "knownNodes=$nodes"
     ;;
+  hardReset)
+    ${curl_cmd}/controller/hardResetNode -X POST
+    ;;
+
+  initCluster)
+    sshServer $master exec "/opt/couchbase/bin/couchbase-cli cluster-init -c $master:8091 --cluster-username Administrator --cluster-password password --cluster-name test --cluster-ramsize 3200"
+    ;;
+
   *)
     echo "Invalid command $command"
     exit 1
