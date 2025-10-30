@@ -187,6 +187,10 @@ if __name__ == "__main__":
             os_release_content = stdout.readlines()
             vm_os = classify_linux_os(os_release_content)
 
+            _, stdout, _ = ssh_client.exec_command(
+                "df -h  | grep '/data' | awk '{print $2}'")
+            data_partition_size = stdout.readline().strip() or "NA"
+
             ssh_client.close()
 
             server_doc ={
@@ -196,6 +200,7 @@ if __name__ == "__main__":
                 "os": vm_os,
                 "core": num_cores,
                 "memory": memory,
+                "data_partition": data_partition_size,
                 "poolId": [
                     pool_id,
                 ],
