@@ -132,11 +132,12 @@ if __name__ == "__main__":
                         help="Couchbase collection name for server pool")
     parser.add_argument("--server_info_csv_file", type=str, required=True,
                         help="Path to CSV file containing server info to add")
-    parser.add_argument("--it_ticket_number", type=str, required=True,
+    parser.add_argument("--it_ticket_number", type=str, default=None,
                         help="IT ticket number associated with the servers being added")
     args = parser.parse_args()
 
     timeout_opts = ClusterTimeoutOptions(
+        connect_timeout=timedelta(seconds=60),
         kv_timeout=timedelta(seconds=10),
         analytics_timeout=timedelta(seconds=1200),
         dns_srv_timeout=timedelta(seconds=10))
@@ -163,7 +164,7 @@ if __name__ == "__main__":
             if not line:
                 break
             line = line.strip()
-            origin, vm_name, ipaddr, pool_id = line.split(",")
+            origin, vm_name, ipaddr, pool_id, it_ticket_number = line.split(",")
             ssh_client = paramiko.SSHClient()
             ssh_client.set_missing_host_key_policy(
                 paramiko.AutoAddPolicy())
@@ -204,13 +205,13 @@ if __name__ == "__main__":
                 "poolId": [
                     pool_id,
                 ],
-                "it_ticket_reference": args.it_ticket_number,
+                "it_ticket_reference": args.it_ticket_number or it_ticket_number,
                 "username": "NA",
                 "prevUser": "NA",
                 "state": "available"
             }
 
-            result = collection.upsert(vm_name, server_doc)
+            result = collection.insert(vm_name, server_doc)
             print(f"Added server document {vm_name} with CAS {result.cas}")
 
     cluster.close()
